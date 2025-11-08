@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CodeMind - AI That Learns Your Coding Style</title>
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
@@ -29,8 +29,8 @@
                     Upload your code or connect GitHub. CodeMind analyzes your patterns and suggests improvements that match YOUR style, not generic best practices.
                 </p>
                 <div class="hero-actions">
-                    <a href="upload.html" class="btn btn-primary btn-large">Upload Code</a>
-                    <a href="editor.html" class="btn btn-secondary btn-large">Go to Editor</a>
+                    <a href="{{ url_for('upload') }}" class="btn btn-primary btn-large">Upload Code</a>
+                    <a href="{{ url_for('editor') }}" class="btn btn-secondary btn-large">Go to Editor</a>
                 </div>
             </div>
         </main>
@@ -56,6 +56,6 @@
         </section>
     </div>
 
-    <script src="js/app.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

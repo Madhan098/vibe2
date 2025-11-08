@@ -1,7 +1,6 @@
-# Root requirements.txt - points to backend requirements
-# This file exists for Render compatibility
-# Actual requirements are in backend/requirements.txt
-
-# For Render, use: pip install -r backend/requirements.txt
-# Or set rootDir to 'backend' in render.yaml
+flask==3.0.0
+flask-cors==4.0.0
+google-generativeai==0.3.2
+python-dotenv==1.0.0
+requests==2.31.0
 
