@@ -35,6 +35,14 @@ async function signInWithGoogle() {
         const currentOrigin = window.location.origin;
         console.log('Current origin:', currentOrigin);
         
+        // Check if origin is allowed (basic check)
+        if (currentOrigin.includes('localhost') || currentOrigin.includes('127.0.0.1')) {
+            console.log('Using localhost origin');
+        } else {
+            console.log('Using production origin:', currentOrigin);
+            console.log('Make sure this origin is added to Google Cloud Console > Authorized JavaScript origins');
+        }
+        
         return new Promise((resolve, reject) => {
             // Use Google OAuth 2.0 Token Client
             const tokenClient = google.accounts.oauth2.initTokenClient({
@@ -43,7 +51,19 @@ async function signInWithGoogle() {
                 callback: async (tokenResponse) => {
                     try {
                         if (tokenResponse.error) {
-                            reject(new Error(tokenResponse.error));
+                            console.error('Google OAuth error:', tokenResponse.error);
+                            let errorMessage = tokenResponse.error;
+                            
+                            // Provide helpful error messages
+                            if (tokenResponse.error === 'popup_closed_by_user') {
+                                errorMessage = 'Sign-in popup was closed. Please try again.';
+                            } else if (tokenResponse.error === 'access_denied') {
+                                errorMessage = 'Access denied. Please check that your domain is authorized in Google Cloud Console.';
+                            } else if (tokenResponse.error.includes('redirect_uri_mismatch')) {
+                                errorMessage = `Redirect URI mismatch. Please add "${currentOrigin}" to Authorized JavaScript origins in Google Cloud Console.`;
+                            }
+                            
+                            reject(new Error(errorMessage));
                             return;
                         }
                         
@@ -92,10 +112,19 @@ async function signInWithGoogle() {
             
             // Request access token (this will open Google sign-in popup)
             // The redirect URI is automatically set to the current origin
-            tokenClient.requestAccessToken({ prompt: 'consent' });
+            try {
+                tokenClient.requestAccessToken({ prompt: 'consent' });
+            } catch (error) {
+                console.error('Error requesting access token:', error);
+                reject(new Error(`Failed to initiate Google sign-in: ${error.message}. Make sure your domain "${currentOrigin}" is added to Authorized JavaScript origins in Google Cloud Console.`));
+            }
         });
     } catch (error) {
         console.error('Google sign-in error:', error);
+        const currentOrigin = window.location.origin;
+        if (error.message.includes('failed to load') || error.message.includes('Identity Services')) {
+            throw new Error(`Google Identity Services failed to load. Please check your internet connection and try again.`);
+        }
         throw error;
     }
 }
