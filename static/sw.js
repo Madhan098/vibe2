@@ -71,16 +71,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API requests - network first, then cache
+  // API requests - network first, then cache (only GET requests)
   if (url.pathname.startsWith('/api/')) {
+    // Skip caching for POST, PUT, DELETE, PATCH requests
+    if (request.method !== 'GET') {
+      // For non-GET requests, just fetch without caching
+      event.respondWith(fetch(request));
+      return;
+    }
+    
     event.respondWith(
       fetch(request)
         .then((response) => {
           // Clone the response
           const responseClone = response.clone();
           
-          // Cache successful API responses
-          if (response.status === 200) {
+          // Cache successful GET API responses only
+          if (response.status === 200 && request.method === 'GET') {
             caches.open(RUNTIME_CACHE).then((cache) => {
               cache.put(request, responseClone);
             });
@@ -89,21 +96,32 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // If network fails, try cache
-          return caches.match(request).then((cachedResponse) => {
-            if (cachedResponse) {
-              return cachedResponse;
-            }
-            // Return offline response for API calls
-            return new Response(
-              JSON.stringify({ error: 'Offline - No cached data available' }),
-              {
-                status: 503,
-                statusText: 'Service Unavailable',
-                headers: { 'Content-Type': 'application/json' }
+          // If network fails, try cache (only for GET requests)
+          if (request.method === 'GET') {
+            return caches.match(request).then((cachedResponse) => {
+              if (cachedResponse) {
+                return cachedResponse;
               }
-            );
-          });
+              // Return offline response for API calls
+              return new Response(
+                JSON.stringify({ error: 'Offline - No cached data available' }),
+                {
+                  status: 503,
+                  statusText: 'Service Unavailable',
+                  headers: { 'Content-Type': 'application/json' }
+                }
+              );
+            });
+          }
+          // For non-GET requests, return error
+          return new Response(
+            JSON.stringify({ error: 'Offline - Cannot process request' }),
+            {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: { 'Content-Type': 'application/json' }
+            }
+          );
         })
     );
     return;
@@ -119,18 +137,21 @@ self.addEventListener('fetch', (event) => {
 
         return fetch(request)
           .then((response) => {
-            // Don't cache non-successful responses
-            if (!response || response.status !== 200 || response.type !== 'basic') {
+            // Don't cache non-successful responses or non-GET requests
+            if (!response || response.status !== 200 || response.type !== 'basic' || request.method !== 'GET') {
               return response;
             }
 
             // Clone the response
             const responseToCache = response.clone();
 
-            caches.open(RUNTIME_CACHE)
-              .then((cache) => {
-                cache.put(request, responseToCache);
-              });
+            // Only cache GET requests
+            if (request.method === 'GET') {
+              caches.open(RUNTIME_CACHE)
+                .then((cache) => {
+                  cache.put(request, responseToCache);
+                });
+            }
 
             return response;
           })

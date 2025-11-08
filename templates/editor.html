@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Code Editor - CodeMind</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/editor.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
@@ -12,35 +14,47 @@
 </head>
 <body>
     <script>
-        // Authentication removed - allow access without login
-        // window.addEventListener('DOMContentLoaded', async () => {
-        //     // Authentication check removed
-        // });
-        
-        // Show user info if logged in
+        // Require authentication to access this page
         window.addEventListener('DOMContentLoaded', async () => {
+            // Check if user is authenticated
             const token = localStorage.getItem('token');
-            if (token) {
-                try {
-                    const userData = await getCurrentUser();
-                    if (userData.success && userData.user) {
-                        const userInfo = document.getElementById('user-info');
-                        const logoutBtn = document.getElementById('logout-btn');
-                        if (userInfo) {
-                            userInfo.textContent = `👤 ${userData.user.name || userData.user.email}`;
-                            userInfo.style.display = 'inline';
-                        }
-                        if (logoutBtn) {
-                            logoutBtn.style.display = 'inline-block';
-                            logoutBtn.addEventListener('click', async () => {
-                                await logout();
-                                window.location.href = '{{ url_for("login_page") }}';
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error loading user info:', error);
+            if (!token) {
+                // Not authenticated, redirect to login
+                window.location.href = '{{ url_for("login_page") }}';
+                return;
+            }
+            
+            // Verify token is valid
+            try {
+                const userData = await getCurrentUser();
+                if (!userData.success || !userData.user) {
+                    // Token is invalid, redirect to login
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '{{ url_for("login_page") }}';
+                    return;
                 }
+                
+                // User is authenticated, show user info
+                const userInfo = document.getElementById('user-info');
+                const logoutBtn = document.getElementById('logout-btn');
+                if (userInfo) {
+                    userInfo.textContent = `👤 ${userData.user.name || userData.user.email}`;
+                    userInfo.style.display = 'inline';
+                }
+                if (logoutBtn) {
+                    logoutBtn.style.display = 'inline-block';
+                    logoutBtn.addEventListener('click', async () => {
+                        await logout();
+                        window.location.href = '{{ url_for("login_page") }}';
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+                // Error verifying token, redirect to login
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '{{ url_for("login_page") }}';
             }
         });
     </script>
@@ -51,7 +65,10 @@
                     <span class="logo-icon">🧠</span>
                     <span class="logo-text">CodeMind</span>
                 </div>
-                <div class="nav-links">
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu">
+                    ☰
+                </button>
+                <div class="nav-links" id="nav-links">
                     <a href="{{ url_for('index') }}" class="nav-link">Home</a>
                     <a href="{{ url_for('upload') }}" class="nav-link">Upload</a>
                     <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>
@@ -62,6 +79,61 @@
 
         <main class="editor-page">
             <div class="editor-container">
+                <!-- VS Code-like Sidebar -->
+                <div class="vscode-sidebar" id="vscode-sidebar">
+                    <div class="sidebar-header">
+                        <h3>Explorer</h3>
+                        <button class="btn-icon" id="toggle-sidebar-btn" title="Toggle Sidebar">◀</button>
+                    </div>
+                    <div class="sidebar-content">
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-header">
+                                <span>📁 Files</span>
+                                <button class="btn-icon-small" id="new-folder-btn" title="New Folder">📁</button>
+                                <button class="btn-icon-small" id="new-file-sidebar-btn" title="New File">📄</button>
+                            </div>
+                            <div class="file-tree" id="file-tree">
+                                <div class="file-tree-item active" data-file="main.py">
+                                    <span class="file-icon">🐍</span>
+                                    <span class="file-name">main.py</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-header">
+                                <span>🔀 Git</span>
+                                <span id="github-connection-status" class="connection-status" style="display: none;">🔗</span>
+                            </div>
+                            <div id="github-not-connected" class="github-not-connected" style="display: none;">
+                                <button class="sidebar-btn btn-connect-github" id="connect-github-btn" style="background: #10b981; color: white; margin-bottom: 8px;">
+                                    🔗 Connect GitHub
+                                </button>
+                                <small style="color: var(--text-secondary); font-size: 11px; display: block; text-align: center;">
+                                    Connect to use Git features
+                                </small>
+                            </div>
+                            <div id="github-connected" class="git-actions" style="display: none;">
+                                <button class="sidebar-btn" id="git-status-btn">📊 Status</button>
+                                <button class="sidebar-btn" id="git-commit-btn">💾 Commit</button>
+                                <button class="sidebar-btn" id="git-push-btn">⬆️ Push</button>
+                                <button class="sidebar-btn" id="git-pull-btn">⬇️ Pull</button>
+                                <button class="sidebar-btn" id="git-disconnect-btn" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; margin-top: 8px;">
+                                    🔌 Disconnect
+                                </button>
+                            </div>
+                        </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-header">
+                                <span>▶️ Run</span>
+                            </div>
+                            <div class="run-actions">
+                                <button class="sidebar-btn" id="run-code-sidebar-btn">▶️ Run Code</button>
+                                <button class="sidebar-btn" id="debug-code-sidebar-btn">🐛 Debug</button>
+                                <button class="sidebar-btn" id="format-code-sidebar-btn">✨ Format</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <div class="editor-panel">
                     <!-- VS Code Style Top Menu Bar -->
                     <div class="vscode-menu-bar">
@@ -173,16 +245,6 @@
                         <div class="ai-input-section">
                             <label for="code-request-input">Ask AI to generate code:</label>
                             
-                            <!-- Template Buttons -->
-                            <div class="template-buttons">
-                                <button class="template-btn" data-template="web-app">🌐 Web App</button>
-                                <button class="template-btn" data-template="flask-app">🐍 Flask App</button>
-                                <button class="template-btn" data-template="static-site">📄 Static Site</button>
-                                <button class="template-btn" data-template="rest-api">🔌 REST API</button>
-                                <button class="template-btn" data-template="cli-tool">⚡ CLI Tool</button>
-                                <button class="template-btn" data-template="data-analysis">📊 Data Analysis</button>
-                            </div>
-                            
                             <div class="input-group">
                                 <input 
                                     type="text" 
@@ -193,21 +255,45 @@
                                 <button class="btn btn-primary" id="generate-code-btn">Generate</button>
                             </div>
                             
-                            <!-- Custom Tech Stack Input -->
+                            <!-- Custom Tech Stack Button and Input -->
                             <div class="tech-stack-section" style="margin-top: 10px;">
-                                <input 
-                                    type="text" 
-                                    id="tech-stack-input" 
-                                    placeholder="Custom tech stack (e.g., React + Node.js + MongoDB)"
-                                    class="input-field"
-                                    style="width: 100%; margin-bottom: 5px;"
-                                >
-                                <small class="hint-text">Optional: Specify your tech stack for better code generation</small>
+                                <button class="btn btn-secondary" id="custom-stack-btn" style="width: 100%; margin-bottom: 10px;">
+                                    🔧 Custom Stack
+                                </button>
+                                <div id="tech-stack-input-container" style="display: none;">
+                                    <input 
+                                        type="text" 
+                                        id="tech-stack-input" 
+                                        placeholder="Enter your tech stack (e.g., React + Node.js + MongoDB)"
+                                        class="input-field"
+                                        style="width: 100%; margin-bottom: 5px;"
+                                    >
+                                    <small class="hint-text">Optional: Specify your tech stack for better code generation</small>
+                                </div>
                             </div>
                             
-                            <small class="hint-text">AI will write code matching your coding style and patterns</small>
+                            <small class="hint-text">AI will write code matching your coding style and patterns, and fix errors found by the recommender</small>
                         </div>
 
+                        <!-- Accept/Reject Dialog -->
+                        <div id="accept-reject-dialog" class="accept-reject-dialog" style="display: none;">
+                            <div class="dialog-header">
+                                <h3>🎯 Code Generation Complete</h3>
+                                <p id="dialog-explanation" class="dialog-explanation"></p>
+                            </div>
+                            <div class="dialog-content">
+                                <div id="dialog-files-list" class="dialog-files-list"></div>
+                            </div>
+                            <div class="dialog-actions">
+                                <button class="btn btn-success" id="accept-all-code-btn" style="background: #10b981; color: white; padding: 12px 24px; font-size: 16px; font-weight: 600;">
+                                    ✅ Accept & Apply All
+                                </button>
+                                <button class="btn btn-danger" id="reject-all-code-btn" style="background: #ef4444; color: white; padding: 12px 24px; font-size: 16px; font-weight: 600;">
+                                    ❌ Reject All
+                                </button>
+                            </div>
+                        </div>
+                        
                         <!-- Generated Code Display -->
                         <div id="generated-code" class="generated-code-section" style="display: none;">
                             <div class="generated-header">
@@ -255,17 +341,55 @@
                                 <button class="btn btn-secondary" id="skip-style-btn">Skip</button>
                             </div>
                         </div>
-                        <div id="suggestion" class="ai-suggestion" style="display: none;">
+                        <!-- Side-by-Side Code Comparison -->
+                        <div id="suggestion-panel" class="suggestion-panel" style="display: none;">
                             <div class="suggestion-header">
-                                <h4>Suggested Improvement</h4>
+                                <h3>💡 AI Suggestion</h3>
+                                <div class="confidence-badge">
+                                    <span>Confidence:</span>
+                                    <span id="confidence-value">85%</span>
+                                </div>
+                                <button class="btn btn-small btn-icon" id="close-suggestion-btn">✕</button>
                             </div>
-                            <div class="suggestion-explanation" id="suggestion-explanation"></div>
-                            <div class="suggestion-code">
-                                <pre><code id="suggestion-code"></code></pre>
+
+                            <!-- Side-by-Side Comparison -->
+                            <div class="code-comparison">
+                                <div class="comparison-column">
+                                    <h4>Your Code</h4>
+                                    <pre><code id="original-code" class="language-python"></code></pre>
+                                </div>
+                                <div class="comparison-arrow">→</div>
+                                <div class="comparison-column highlight">
+                                    <h4>Improved (Matching YOUR Style)</h4>
+                                    <pre><code id="improved-code" class="language-python"></code></pre>
+                                </div>
                             </div>
-                            <div class="suggestion-actions">
-                                <button class="btn btn-primary" id="accept-btn">✅ Accept</button>
-                                <button class="btn btn-secondary" id="reject-btn">❌ Reject</button>
+
+                            <!-- What Changed -->
+                            <div class="changes-section">
+                                <h4>✨ What Changed:</h4>
+                                <ul id="changes-list">
+                                    <!-- Dynamically populated -->
+                                </ul>
+                            </div>
+
+                            <!-- Why It Matches Your Style -->
+                            <div class="style-match-section">
+                                <h4>🎯 Why This Matches YOUR Style:</h4>
+                                <div id="style-explanation"></div>
+                            </div>
+
+                            <!-- Action Buttons -->
+                            <div class="action-buttons">
+                                <button class="btn-accept" id="accept-suggestion-btn">
+                                    ✓ Accept & Learn
+                                </button>
+                                <button class="btn-reject" id="reject-suggestion-btn">
+                                    ✗ Keep Mine
+                                </button>
+                                <button class="btn-explain" id="explain-more-btn">
+                                    ? Explain More
+                                </button>
                             </div>
                         </div>
                         <div id="loading-suggestion" class="ai-loading" style="display: none;">
@@ -278,7 +402,63 @@
         </main>
     </div>
 
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h3 id="loading-text">Analyzing your code...</h3>
+            <p id="loading-subtitle">Extracting your coding DNA</p>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- GitHub Connection Modal -->
+    <div id="github-connection-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔗 Connect GitHub Account</h3>
+                <button class="btn-icon" id="close-github-modal-btn">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Connect your GitHub account to enable Git operations (Commit, Push, Pull).
+                </p>
+                <div class="input-group" style="margin-bottom: 15px;">
+                    <label for="github-token-input">GitHub Personal Access Token:</label>
+                    <input 
+                        type="password" 
+                        id="github-token-input" 
+                        placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+                        class="input-field"
+                        style="width: 100%;"
+                    >
+                    <small style="color: var(--text-secondary); font-size: 12px; display: block; margin-top: 5px;">
+                        Create a token at: <a href="https://github.com/settings/tokens" target="_blank" style="color: #8b5cf6;">github.com/settings/tokens</a>
+                    </small>
+                </div>
+                <div class="input-group" style="margin-bottom: 20px;">
+                    <label for="github-username-input">GitHub Username (optional):</label>
+                    <input 
+                        type="text" 
+                        id="github-username-input" 
+                        placeholder="Your GitHub username"
+                        class="input-field"
+                        style="width: 100%;"
+                    >
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" id="connect-github-submit-btn" style="width: 100%;">
+                        🔗 Connect GitHub
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/editor.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-menu.js') }}"></script>
 </body>
 </html>

@@ -7,18 +7,21 @@ import os
 from dotenv import load_dotenv
 import requests
 from code_analyzer import analyze_code_files, analyze_code
-from github_integration import fetch_all_user_code_files
+from github_integration import fetch_all_user_code_files, fetch_user_repositories, get_github_headers
+from github_health_analyzer import analyze_github_profile_health, calculate_language_percentages, analyze_code_content
 import threading
 
 # Global progress tracking for GitHub analysis
 github_progress = {}
+# Global progress tracking for file upload analysis
+file_upload_progress = {}
 progress_lock = threading.Lock()
 from ai_engine import AIEngine
 from multi_language_analyzer import analyze_all_languages
 from language_detector import get_language_from_extension, detect_language_from_content
 from models import (
     create_user, get_user_by_email, get_user_by_id,
-    create_session, get_session, delete_session,
+    create_session, get_session, delete_session, cleanup_expired_sessions,
     get_user_profile, save_style_profile, get_style_profile,
     update_style_profile_from_feedback
 )
@@ -52,6 +55,35 @@ if not groq_key:
     print("AI features will not work. Please set GROQ_API_KEY in .env file.")
 ai_engine = AIEngine(api_key=groq_key) if groq_key else None
 
+# Clean up expired sessions periodically
+import time
+import random
+
+def periodic_cleanup():
+    """Periodically clean up expired sessions"""
+    while True:
+        time.sleep(3600)  # Run every hour
+        try:
+            cleaned = cleanup_expired_sessions()
+            if cleaned > 0:
+                print(f"Cleaned up {cleaned} expired sessions")
+        except Exception as e:
+            print(f"Error cleaning up sessions: {e}")
+
+# Start cleanup thread
+cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+cleanup_thread.start()
+
+@app.before_request
+def before_request():
+    """Run before each request - cleanup expired sessions occasionally"""
+    # Clean up expired sessions every 100 requests (to avoid overhead)
+    if random.randint(1, 100) == 1:  # 1% chance per request
+        try:
+            cleanup_expired_sessions()
+        except:
+            pass
+
 
 # ==========================================
 # API ROUTES
@@ -77,13 +109,14 @@ def register():
         if error:
             return jsonify({'error': error}), 400
         
-        # Create session
-        token = create_session(user.id)
+        # Create session (30 days expiration)
+        token = create_session(user.id, expires_in_days=30)
         
         return jsonify({
             'success': True,
             'token': token,
-            'user': user.to_dict()
+            'user': user.to_dict(),
+            'expires_in_days': 30
         }), 201
         
     except Exception as e:
@@ -109,13 +142,14 @@ def login():
         if not user.check_password(password):
             return jsonify({'error': 'Invalid email or password'}), 401
         
-        # Create session
-        token = create_session(user.id)
+        # Create session (30 days expiration)
+        token = create_session(user.id, expires_in_days=30)
         
         return jsonify({
             'success': True,
             'token': token,
-            'user': user.to_dict()
+            'user': user.to_dict(),
+            'expires_in_days': 30
         }), 200
         
     except Exception as e:
@@ -292,13 +326,14 @@ def google_auth():
             if error:
                 return jsonify({'error': f'Failed to create user: {error}'}), 500
         
-        # Create session
-        token = create_session(user.id)
+        # Create session (30 days expiration)
+        token = create_session(user.id, expires_in_days=30)
         
         return jsonify({
             'success': True,
             'token': token,
-            'user': user.to_dict()
+            'user': user.to_dict(),
+            'expires_in_days': 30
         }), 200
         
     except requests.exceptions.RequestException as e:
@@ -363,14 +398,21 @@ def get_current_user():
                 'user': None
             }), 200
         
-        # Include style profile if available
+        # Include style profile (DNA) if available
         style_profile = get_style_profile(user.id)
+        
+        # Get user profile (stats)
+        user_profile = get_user_profile(user.id)
+        profile_dict = None
+        if user_profile:
+            profile_dict = user_profile.to_dict()
         
         return jsonify({
             'success': True,
             'user': user.to_dict(),
             'has_style_profile': style_profile is not None,
-            'style_profile': style_profile  # Return the full profile
+            'style_profile': style_profile,  # Style DNA data
+            'user_profile': profile_dict  # User stats (interactions, acceptance rate, etc.)
         }), 200
         
     except Exception as e:
@@ -410,41 +452,68 @@ def get_style_profile_endpoint():
 
 @app.route('/api/save-style-profile', methods=['POST'])
 def save_style_profile_endpoint():
-    """Save or update user's style profile (DNA)"""
+    """Save or update user's style profile (DNA) - authentication optional"""
     try:
         user = get_user_from_request()
-        if not user:
-            return jsonify({'error': 'Authentication required'}), 401
-        
         data = request.json
         style_profile = data.get('style_profile', {})
         
         if not style_profile:
             return jsonify({'error': 'Style profile is required'}), 400
         
-        save_style_profile(user.id, style_profile)
-        
-        return jsonify({
-            'success': True,
-            'message': 'Style profile saved successfully'
-        }), 200
+        # Save to database if authenticated
+        if user:
+            save_style_profile(user.id, style_profile)
+            return jsonify({
+                'success': True,
+                'message': 'Style profile saved successfully to your account'
+            }), 200
+        else:
+            # Not authenticated - just return success (frontend will save to localStorage)
+            return jsonify({
+                'success': True,
+                'message': 'Style profile saved to local storage'
+            }), 200
         
     except Exception as e:
         print(f"Error saving style profile: {e}")
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/file-upload-progress', methods=['GET'])
+def get_file_upload_progress():
+    """Get progress of file upload analysis"""
+    with progress_lock:
+        # Use a session ID or default key
+        session_id = request.args.get('session_id', 'default')
+        progress = file_upload_progress.get(session_id, {'percent': 0, 'status': 'Starting...'})
+    return jsonify(progress), 200
+
 @app.route('/api/analyze-files', methods=['POST'])
 def analyze_files():
     """Analyze uploaded code files (all languages) - authentication optional"""
+    import time as time_module
+    import uuid
+    
+    session_id = str(uuid.uuid4())[:8]  # Generate session ID for progress tracking
+    
     try:
+        # Initialize progress
+        with progress_lock:
+            file_upload_progress[session_id] = {'percent': 5, 'status': 'Reading files...'}
+        
         # Authentication optional - get user if available
         user = get_user_from_request()
         
         files = request.files.getlist('files')
         
         if not files:
+            with progress_lock:
+                file_upload_progress.pop(session_id, None)
             return jsonify({'error': 'No files uploaded'}), 400
+        
+        with progress_lock:
+            file_upload_progress[session_id] = {'percent': 10, 'status': f'Processing {len(files)} files...'}
         
         code_files = []
         # Common code file extensions (all languages)
@@ -455,7 +524,8 @@ def analyze_files():
             '.dart', '.lua', '.pl', '.pm', '.sql'
         ]
         
-        for file in files:
+        total_files = len(files)
+        for idx, file in enumerate(files):
             filename = file.filename
             # Check if it's a code file
             if any(filename.lower().endswith(ext) for ext in code_extensions):
@@ -470,12 +540,25 @@ def analyze_files():
                         'content': content,
                         'language': language
                     })
+                    
+                    # Update progress
+                    progress_percent = 10 + int((idx + 1) / total_files * 30)  # 10-40% for reading files
+                    with progress_lock:
+                        file_upload_progress[session_id] = {
+                            'percent': progress_percent,
+                            'status': f'Reading file {idx + 1}/{total_files}: {filename}'
+                        }
                 except UnicodeDecodeError:
                     # Skip binary files
                     continue
         
         if not code_files:
+            with progress_lock:
+                file_upload_progress.pop(session_id, None)
             return jsonify({'error': 'No code files found. Please upload files with code file extensions.'}), 400
+        
+        with progress_lock:
+            file_upload_progress[session_id] = {'percent': 45, 'status': 'Analyzing code patterns...'}
         
         # Analyze code (multi-language)
         if len(code_files) == 1 and code_files[0]['language'] == 'Python':
@@ -485,22 +568,39 @@ def analyze_files():
             # Use multi-language analyzer
             report = analyze_all_languages(code_files)
         
+        with progress_lock:
+            file_upload_progress[session_id] = {'percent': 90, 'status': 'Finalizing results...'}
+        
         # Save style profile to database if user is authenticated
-        user = get_user_from_request()
         if user:
             save_style_profile(user.id, report)
             print(f"Style profile saved for user: {user.email}")
         
+        with progress_lock:
+            file_upload_progress[session_id] = {'percent': 100, 'status': 'Complete!'}
+        
+        # Clean up progress after a delay
+        def cleanup_progress():
+            time_module.sleep(2)
+            with progress_lock:
+                file_upload_progress.pop(session_id, None)
+        
+        import threading
+        threading.Thread(target=cleanup_progress, daemon=True).start()
+        
         return jsonify({
             'success': True,
             'report': report,
-            'saved_to_profile': user is not None
+            'saved_to_profile': user is not None,
+            'session_id': session_id  # Return session ID for progress tracking
         }), 200
         
     except Exception as e:
         print(f"Error analyzing files: {e}")
         import traceback
         traceback.print_exc()
+        with progress_lock:
+            file_upload_progress.pop(session_id, None)
         return jsonify({'error': str(e)}), 500
 
 
@@ -533,53 +633,370 @@ def analyze_github():
         
         print(f"Starting GitHub analysis for user: {username}")
         
-        # Fetch all code files from user's repositories (optimized)
+        # Fetch repositories first for health analysis
         print(f"Fetching repositories for {username}...")
         with progress_lock:
             github_progress[username] = {'percent': 2, 'status': 'Connecting to GitHub...'}
         
+        repos = fetch_user_repositories(username)
+        
+        # Check if user exists (repos will be empty if user not found)
+        if not repos:
+            with progress_lock:
+                github_progress.pop(username, None)
+            
+            # Try to verify if user exists by checking GitHub API directly
+            try:
+                headers = get_github_headers()
+                user_check_url = f"https://api.github.com/users/{username}"
+                print(f"Checking if user exists: {user_check_url}")
+                
+                user_response = requests.get(user_check_url, timeout=10, headers=headers)
+                print(f"User check response status: {user_response.status_code}")
+                
+                if user_response.status_code == 404:
+                    error_data = user_response.json() if user_response.content else {}
+                    error_msg = error_data.get('message', 'User not found')
+                    print(f"User {username} not found: {error_msg}")
+                    return jsonify({
+                        'error': f'User "{username}" not found on GitHub.',
+                        'details': {
+                            'message': error_msg,
+                            'url': f'https://github.com/{username}'
+                        },
+                        'suggestions': [
+                            'Verify the GitHub username is correct (case-sensitive)',
+                            'Check the username spelling',
+                            f'Visit https://github.com/{username} to verify the account exists',
+                            'GitHub usernames are case-sensitive - check capitalization'
+                        ]
+                    }), 404
+                elif user_response.status_code == 200:
+                    user_data = user_response.json()
+                    public_repos = user_data.get('public_repos', 0)
+                    total_repos = user_data.get('public_repos', 0) + user_data.get('total_private_repos', 0)
+                    print(f"User {username} found: {public_repos} public repos, {total_repos} total repos")
+                    
+                    # Check if user has any repositories at all
+                    if total_repos == 0:
+                        return jsonify({
+                            'error': f'User "{username}" found but has no repositories.',
+                            'details': {
+                                'username': username,
+                                'public_repos_count': public_repos,
+                                'total_repos_count': total_repos,
+                                'account_url': user_data.get('html_url', f'https://github.com/{username}')
+                            },
+                            'suggestions': [
+                                'The account exists but has no repositories yet',
+                                f'Visit https://github.com/{username}?tab=repositories to check',
+                                'Create a repository with code files to analyze'
+                            ]
+                        }), 404
+                    elif public_repos == 0:
+                        return jsonify({
+                            'error': f'User "{username}" found but has no public repositories.',
+                            'details': {
+                                'username': username,
+                                'public_repos_count': public_repos,
+                                'total_repos_count': total_repos,
+                                'account_url': user_data.get('html_url', f'https://github.com/{username}')
+                            },
+                            'suggestions': [
+                                'The account only has private repositories',
+                                'Add GITHUB_TOKEN to .env file to access private repositories',
+                                'Make at least one repository public to analyze without a token',
+                                f'Visit https://github.com/{username}?tab=repositories to check repositories'
+                            ]
+                        }), 404
+                    else:
+                        # User has public repos but we couldn't fetch them - might be an API issue
+                        return jsonify({
+                            'error': f'User "{username}" found with {public_repos} public repositories, but unable to fetch them.',
+                            'details': {
+                                'username': username,
+                                'public_repos_count': public_repos,
+                                'account_url': user_data.get('html_url', f'https://github.com/{username}')
+                            },
+                            'suggestions': [
+                                'This might be a temporary GitHub API issue',
+                                'Try again in a few moments',
+                                f'Visit https://github.com/{username}?tab=repositories to verify repositories exist',
+                                'Check if repositories are empty or contain only non-code files'
+                            ]
+                        }), 500
+                elif user_response.status_code == 403:
+                    error_data = user_response.json() if user_response.content else {}
+                    error_msg = error_data.get('message', 'Access denied')
+                    print(f"Access denied for user check: {error_msg}")
+                    return jsonify({
+                        'error': f'Access denied when checking user "{username}".',
+                        'details': {
+                            'message': error_msg,
+                            'status_code': 403
+                        },
+                        'suggestions': [
+                            'GitHub API rate limit might be exceeded',
+                            'Add GITHUB_TOKEN to .env file for higher rate limits',
+                            'Wait a few minutes and try again',
+                            'Check your internet connection'
+                        ]
+                    }), 403
+                else:
+                    error_data = user_response.json() if user_response.content else {}
+                    error_msg = error_data.get('message', 'Unknown error')
+                    print(f"Unexpected status code {user_response.status_code}: {error_msg}")
+                    return jsonify({
+                        'error': f'Unable to verify user "{username}" on GitHub.',
+                        'details': {
+                            'status_code': user_response.status_code,
+                            'message': error_msg,
+                            'response_text': user_response.text[:200] if user_response.text else 'No response'
+                        },
+                        'suggestions': [
+                            'Check your internet connection',
+                            'Verify the GitHub username is correct',
+                            'Try again in a few moments',
+                            'GitHub API might be experiencing issues'
+                        ]
+                    }), 500
+            except requests.exceptions.Timeout:
+                print(f"Timeout checking user {username}")
+                return jsonify({
+                    'error': f'Request timed out while checking user "{username}".',
+                    'suggestions': [
+                        'Check your internet connection',
+                        'Try again in a few moments',
+                        'GitHub API might be slow or unavailable'
+                    ]
+                }), 504
+            except requests.exceptions.RequestException as e:
+                print(f"Request error checking user existence: {e}")
+                return jsonify({
+                    'error': f'Network error while checking user "{username}".',
+                    'details': {
+                        'error': str(e)
+                    },
+                    'suggestions': [
+                        'Check your internet connection',
+                        'Verify the GitHub username is correct',
+                        'Try again in a few moments'
+                    ]
+                }), 500
+            except Exception as e:
+                print(f"Error checking user existence: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': f'Unable to verify user "{username}" on GitHub.',
+                    'details': {
+                        'error': str(e),
+                        'error_type': type(e).__name__
+                    },
+                    'suggestions': [
+                        'Verify the GitHub username is correct',
+                        'Ensure the account has public repositories',
+                        'If using a private account, make sure you\'re authenticated with a GitHub token',
+                        'Check your internet connection',
+                        'Try again in a few moments'
+                    ]
+                }), 500
+        
+        # Analyze repository health (good/bad patterns)
+        health_report = None
+        if repos:
+            with progress_lock:
+                github_progress[username] = {'percent': 5, 'status': 'Analyzing repository health...'}
+            
+            # Update progress during health analysis
+            total_repos = len(repos)
+            for i, repo_info in enumerate(repos):
+                with progress_lock:
+                    # 5% to 20% for health analysis (5% base + 15% for repos)
+                    progress_pct = 5 + int((i / total_repos) * 15)
+                    github_progress[username] = {
+                        'percent': min(progress_pct, 20),
+                        'status': f'Analyzing repository {i+1}/{total_repos}: {repo_info.get("name", "unknown")}...'
+                    }
+            
+            health_report = analyze_github_profile_health(username, repos)
+            print(f"Health analysis: {health_report['good_percentage']:.1f}% good, {health_report['bad_percentage']:.1f}% bad")
+            
+            with progress_lock:
+                github_progress[username] = {'percent': 20, 'status': 'Health analysis complete. Fetching code files...'}
+        
+        # Fetch code files
         code_files = fetch_all_user_code_files(username, progress_key=username)
         
         fetch_time = time_module.time() - start_time
-        print(f"Found {len(code_files)} files to analyze (fetched in {fetch_time:.1f}s)")
+        print(f"Found {len(code_files)} code files to analyze (fetched in {fetch_time:.1f}s)")
         
-        if not code_files:
+        # Log repository details for debugging
+        if repos:
+            print(f"Repositories checked: {[repo.get('name', 'unknown') for repo in repos]}")
+            print(f"Total repositories: {len(repos)}")
+        
+        if not code_files and not health_report:
             with progress_lock:
                 github_progress.pop(username, None)
+            
+            # Provide detailed error message
+            repo_count = len(repos) if repos else 0
             return jsonify({
-                'error': f'No code files found in {username}\'s repositories. Make sure the username is correct and has public repositories with code files.'
+                'error': f'No code files found in {username}\'s repositories.',
+                'details': {
+                    'repositories_found': repo_count,
+                    'repositories_checked': [repo.get('name', 'unknown') for repo in repos[:5]] if repos else [],
+                    'possible_reasons': [
+                        'Repositories might be empty',
+                        'Repositories might only contain non-code files (images, docs, etc.)',
+                        'Code files might be in private repositories (requires GitHub token)',
+                        'Code files might be in subdirectories deeper than 4 levels',
+                        'Repositories might only contain binary files or large files (>50KB)'
+                    ]
+                },
+                'suggestions': [
+                    'Ensure repositories contain code files (Python, JavaScript, Java, etc.)',
+                    'Check if repositories are public or authenticate with a GitHub token for private repos',
+                    'Verify repositories have code files in the root or common directories'
+                ]
             }), 404
         
-        # Analyze code (multi-language)
-        print(f"Analyzing {len(code_files)} files across multiple languages...")
-        with progress_lock:
-            github_progress[username] = {'percent': 65, 'status': f'Analyzing {len(code_files)} files...'}
+        # Analyze code content for bad patterns
+        if code_files:
+            code_content_analysis = analyze_code_content(code_files)
+            if health_report:
+                health_report['bad_patterns'].extend(code_content_analysis['bad_patterns'])
+                health_report['bad_score'] += code_content_analysis['bad_score']
+                # Recalculate percentages
+                total_score = health_report['good_score'] + health_report['bad_score']
+                if total_score > 0:
+                    health_report['good_percentage'] = round((health_report['good_score'] / total_score) * 100, 1)
+                    health_report['bad_percentage'] = round((health_report['bad_score'] / total_score) * 100, 1)
+                health_report['health_score'] = round(100 - health_report['bad_percentage'], 1)
         
-        # Detect if mostly Python or multi-language
-        python_files = [f for f in code_files if f.get('language') == 'Python']
-        if len(python_files) == len(code_files) and len(code_files) > 0:
-            # All Python files - use Python analyzer
-            report = analyze_code_files(code_files)
-        else:
-            # Multi-language - use multi-language analyzer
-            report = analyze_all_languages(code_files)
+        # Calculate language percentages
+        language_percentages = calculate_language_percentages(code_files) if code_files else {}
+        
+        # Analyze code (multi-language)
+        report = {}
+        if code_files:
+            print(f"Analyzing {len(code_files)} files across multiple languages...")
+            with progress_lock:
+                github_progress[username] = {'percent': 60, 'status': f'Analyzing {len(code_files)} files...'}
+            
+            # Detect if mostly Python or multi-language
+            python_files = [f for f in code_files if f.get('language') == 'Python']
+            if len(python_files) == len(code_files) and len(code_files) > 0:
+                # All Python files - use Python analyzer
+                report = analyze_code_files(code_files)
+            else:
+                # Multi-language - use multi-language analyzer
+                report = analyze_all_languages(code_files)
+            
+            report['files_analyzed'] = len(code_files)
+            
+            with progress_lock:
+                github_progress[username] = {'percent': 75, 'status': 'Code analysis complete. Generating AI suggestions...'}
+        
+        with progress_lock:
+            github_progress[username] = {'percent': 80, 'status': 'Generating AI suggestions...'}
+        
+        # Generate AI suggestions based on health report
+        ai_suggestions = None
+        if health_report and ai_engine:
+            try:
+                suggestions_prompt = f"""Analyze this GitHub profile health report and provide actionable suggestions.
+
+Good Patterns Found: {len(health_report.get('good_patterns', []))}
+Bad Patterns Found: {len(health_report.get('bad_patterns', []))}
+Health Score: {health_report.get('health_score', 0)}/100
+Good Percentage: {health_report.get('good_percentage', 0)}%
+Bad Percentage: {health_report.get('bad_percentage', 0)}%
+
+Good Patterns:
+{chr(10).join([f"- {p.get('description', '')} ({p.get('category', '')})" for p in health_report.get('good_patterns', [])[:10]])}
+
+Bad Patterns:
+{chr(10).join([f"- {p.get('description', '')} ({p.get('category', '')})" for p in health_report.get('bad_patterns', [])[:10]])}
+
+Languages Used: {', '.join([f"{lang} ({pct}%)" for lang, pct in language_percentages.items()])}
+
+Provide:
+1. A brief summary of the profile health
+2. Top 5 actionable suggestions to improve
+3. A roadmap to address bad patterns
+4. How to enhance good patterns further
+
+Format as JSON:
+{{
+  "summary": "brief summary",
+  "suggestions": ["suggestion 1", "suggestion 2", ...],
+  "roadmap": ["step 1", "step 2", ...],
+  "enhancements": ["enhancement 1", "enhancement 2", ...]
+}}"""
+                
+                try:
+                    ai_response = ai_engine.client.chat.completions.create(
+                        model=ai_engine.model,
+                        messages=[{"role": "user", "content": suggestions_prompt}],
+                        temperature=0.7,
+                        max_tokens=2048
+                    )
+                except:
+                    # Try fallback model
+                    ai_response = ai_engine.client.chat.completions.create(
+                        model=ai_engine.fallback_model,
+                        messages=[{"role": "user", "content": suggestions_prompt}],
+                        temperature=0.7,
+                        max_tokens=2048
+                    )
+                
+                import json
+                import re
+                text = ai_response.choices[0].message.content.strip()
+                text = re.sub(r'```json\s*', '', text)
+                text = re.sub(r'```\s*', '', text)
+                ai_suggestions = json.loads(text)
+            except Exception as e:
+                print(f"Error generating AI suggestions: {e}")
+                ai_suggestions = {
+                    "summary": f"Profile health: {health_report.get('health_score', 0)}/100",
+                    "suggestions": ["Review and fix bad patterns", "Add missing documentation", "Set up CI/CD", "Add security scanning", "Improve code structure"],
+                    "roadmap": ["Fix critical issues first", "Add missing files", "Set up automation", "Improve code quality", "Enhance security"],
+                    "enhancements": ["Add more documentation", "Set up automated testing", "Improve code structure", "Add code quality tools"]
+                }
         
         with progress_lock:
             github_progress[username] = {'percent': 90, 'status': 'Finalizing results...'}
         
-        report['files_analyzed'] = len(code_files)
+        # Combine all data
+        report['language_percentages'] = language_percentages
+        report['health_report'] = health_report
+        report['ai_suggestions'] = ai_suggestions
+        
         total_time = time_module.time() - start_time
         
         print(f"Analysis complete in {total_time:.1f}s. Quality score: {report.get('code_quality_score', 'N/A')}")
         
-        # Save style profile to database if user is authenticated
+        # Save style profile and health report to database if user is authenticated
         user = get_user_from_request()
         if user:
             save_style_profile(user.id, report)
+            # Save health report to user profile
+            if health_report:
+                user_profile = get_user_profile(user.id)
+                if user_profile:
+                    user_profile.github_health_report = health_report
+                    print(f"GitHub health report saved for user: {user.email}")
             print(f"Style profile saved for user: {user.email}")
         
-        # Clear progress
+        # Set progress to 100% before clearing
         with progress_lock:
+            github_progress[username] = {'percent': 100, 'status': 'Analysis complete!'}
+            # Keep progress for a moment so frontend can see 100%
+            import time
+            time.sleep(0.5)
             github_progress.pop(username, None)
         
         return jsonify({
@@ -692,13 +1109,31 @@ def generate_code():
         
         # Get style profile from database (automatically use stored DNA)
         style_profile = None
+        health_report = None
+        github_issues = []
         
         if user:
             stored_profile = get_style_profile(user.id)
             if stored_profile:
                 style_profile = stored_profile
                 print(f"Using stored style profile (DNA) for user: {user.email}")
-            else:
+            
+            # Get GitHub health report if available
+            try:
+                user_profile = get_user_profile(user.id)
+                if user_profile and hasattr(user_profile, 'github_health_report') and user_profile.github_health_report:
+                    health_report = user_profile.github_health_report
+                    # Extract bad patterns/issues to fix
+                    bad_patterns = health_report.get('bad_patterns', [])
+                    github_issues = [
+                        f"{p.get('description', '')} ({p.get('category', 'Unknown')})"
+                        for p in bad_patterns[:20]  # Top 20 issues
+                    ]
+                    print(f"Found {len(github_issues)} GitHub health issues to address")
+            except Exception as e:
+                print(f"Error fetching GitHub health report: {e}")
+            
+            if not style_profile:
                 # Try to get from request body as fallback
                 style_profile = data.get('style_profile', {})
                 if style_profile:
@@ -708,6 +1143,14 @@ def generate_code():
         else:
             # Not authenticated - use provided profile
             style_profile = data.get('style_profile', {})
+            # Try to get health report from request
+            if data.get('health_report'):
+                health_report = data.get('health_report')
+                bad_patterns = health_report.get('bad_patterns', [])
+                github_issues = [
+                    f"{p.get('description', '')} ({p.get('category', 'Unknown')})"
+                    for p in bad_patterns[:20]
+                ]
         
         # If no style profile, use a default one for basic code generation
         if not style_profile:
@@ -722,17 +1165,34 @@ def generate_code():
             }
             print("No style profile found, using default style profile")
         
+        # Enhance request with GitHub health issues
+        enhanced_request = user_request
+        if github_issues:
+            issues_text = "\n".join([f"- {issue}" for issue in github_issues])
+            enhanced_request = f"""{user_request}
+
+IMPORTANT: Address these GitHub health issues in the generated code:
+{issues_text}
+
+Generate code that:
+1. Fixes all the issues listed above
+2. Follows best practices to prevent these issues
+3. Includes proper documentation, error handling, and structure
+4. Is production-ready and follows industry standards"""
+        
         print(f"Generating code for request: {user_request[:50]}...")
         print(f"  Language: {language}, Template: {template}, Tech Stack: {tech_stack}")
         print(f"  Using style profile: {style_profile.get('naming_style', 'default')} naming, {style_profile.get('documentation_percentage', 0)}% docs")
+        if github_issues:
+            print(f"  Addressing {len(github_issues)} GitHub health issues")
         
         # Get preferred language from style profile or use provided language
         preferred_language = style_profile.get('primary_language') or language
         
-        # Generate code using AI (with style matching)
+        # Generate code using AI (with style matching and health issues)
         try:
             result = ai_engine.generate_code(
-                user_request, 
+                enhanced_request, 
                 style_profile, 
                 preferred_language,
                 template=template,
@@ -1103,6 +1563,37 @@ def handle_feedback():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/export-github-health-pdf', methods=['POST'])
+def export_github_health_pdf():
+    """Export GitHub health report as PDF"""
+    try:
+        from pdf_generator import generate_health_report_pdf
+        
+        data = request.json
+        health_data = data.get('health_data', {})
+        
+        if not health_data:
+            return jsonify({'error': 'Health data required'}), 400
+        
+        # Generate PDF
+        pdf_bytes = generate_health_report_pdf(health_data)
+        
+        # Return PDF as download
+        response = Response(
+            pdf_bytes,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename=github-health-report-{health_data.get("username", "user")}.pdf'
+            }
+        )
+        return response
+        
+    except Exception as e:
+        print(f"Error generating PDF: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/export-style-guide', methods=['POST'])
 def export_style_guide():
     """Export user's style guide as markdown - returns file for download"""
@@ -1110,10 +1601,20 @@ def export_style_guide():
         from datetime import datetime
         from flask import Response
         
-        profile = request.json.get('style_profile', {})
+        # Try to get style profile from request body
+        profile = request.json.get('style_profile', {}) if request.json else {}
         
+        # If not provided, try to get from user's stored profile
         if not profile:
-            return jsonify({'error': 'Style profile required'}), 400
+            user = get_user_from_request()
+            if user:
+                stored_profile = get_style_profile(user.id)
+                if stored_profile:
+                    profile = stored_profile
+        
+        # If still no profile, return error
+        if not profile:
+            return jsonify({'error': 'Style profile required. Please upload code first or provide style_profile in request.'}), 400
         
         # Generate markdown style guide
         guide = f"""# My Coding Style Guide
@@ -1229,14 +1730,317 @@ def index_html():
 
 @app.route('/upload.html')
 def upload():
-    """Serve upload.html - no authentication required"""
+    """Serve upload.html - authentication required (enforced by frontend)"""
     return render_template('upload.html')
 
 
 @app.route('/editor.html')
 def editor():
-    """Serve editor.html - no authentication required"""
+    """Serve editor.html - authentication required (enforced by frontend)"""
     return render_template('editor.html')
+
+
+@app.route('/manifest.json')
+def manifest():
+    """Serve manifest.json"""
+    return send_from_directory('static', 'manifest.json', mimetype='application/manifest+json')
+
+
+@app.route('/icons/<path:filename>')
+def icons(filename):
+    """Serve icon files"""
+    return send_from_directory('static/icons', filename)
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon.ico"""
+    try:
+        return send_from_directory('static/icons', 'icon-192x192.png', mimetype='image/png')
+    except:
+        # If icon doesn't exist, return 204 No Content to suppress 404
+        return '', 204
+
+# GitHub Integration Routes
+@app.route('/api/github/connect', methods=['POST'])
+def connect_github():
+    """Connect GitHub account using OAuth token"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        data = request.json
+        github_token = data.get('token', '').strip()
+        github_username = data.get('username', '').strip()
+        
+        if not github_token:
+            return jsonify({'error': 'GitHub token is required'}), 400
+        
+        # Verify token by making a test API call
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'CodeMind/1.0'
+        }
+        
+        # Get user info from GitHub
+        if not github_username:
+            user_response = requests.get('https://api.github.com/user', headers=headers, timeout=10)
+            if user_response.status_code == 200:
+                github_username = user_response.json().get('login', '')
+            else:
+                return jsonify({'error': 'Invalid GitHub token'}), 401
+        
+        # Store GitHub credentials in user profile
+        user_profile = get_user_profile(user.id)
+        if user_profile:
+            user_profile.github_token = github_token
+            user_profile.github_username = github_username
+            user_profile.github_connected = True
+            print(f"GitHub account connected for user: {user.email} (GitHub: {github_username})")
+        
+        return jsonify({
+            'success': True,
+            'message': f'GitHub account connected successfully',
+            'username': github_username
+        }), 200
+        
+    except Exception as e:
+        print(f"Error connecting GitHub: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/github/disconnect', methods=['POST'])
+def disconnect_github():
+    """Disconnect GitHub account"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        user_profile = get_user_profile(user.id)
+        if user_profile:
+            user_profile.github_token = None
+            user_profile.github_username = None
+            user_profile.github_connected = False
+        
+        return jsonify({'success': True, 'message': 'GitHub account disconnected'}), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/git/status', methods=['POST'])
+def git_status():
+    """Get Git status for current code"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Check if GitHub is connected
+        user_profile = get_user_profile(user.id)
+        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub account not connected',
+                'requires_connection': True
+            }), 400
+        
+        data = request.json
+        code = data.get('code', '')
+        filename = data.get('filename', 'untitled.py')
+        
+        # For now, return a simple status
+        # In a real implementation, you'd check git status
+        return jsonify({
+            'success': True,
+            'status': 'clean',
+            'message': 'No changes to commit',
+            'files': [filename]
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/git/commit', methods=['POST'])
+def git_commit():
+    """Commit code to GitHub repository"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Check if GitHub is connected
+        user_profile = get_user_profile(user.id)
+        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub account not connected',
+                'requires_connection': True
+            }), 400
+        
+        data = request.json
+        code = data.get('code', '')
+        filename = data.get('filename', 'untitled.py')
+        message = data.get('message', 'Update code')
+        repo_name = data.get('repo', 'codemind-project')
+        branch = data.get('branch', 'main')
+        
+        if not code:
+            return jsonify({'error': 'Code is required'}), 400
+        
+        github_token = user_profile.github_token
+        github_username = user_profile.github_username
+        
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'CodeMind/1.0'
+        }
+        
+        # Create or update file in repository
+        # First, check if repo exists
+        repo_url = f'https://api.github.com/repos/{github_username}/{repo_name}'
+        repo_response = requests.get(repo_url, headers=headers, timeout=10)
+        
+        if repo_response.status_code == 404:
+            # Create repository
+            create_repo_response = requests.post(
+                'https://api.github.com/user/repos',
+                headers=headers,
+                json={
+                    'name': repo_name,
+                    'private': False,
+                    'auto_init': True
+                },
+                timeout=10
+            )
+            if create_repo_response.status_code not in [200, 201]:
+                return jsonify({'error': 'Failed to create repository'}), 500
+        
+        # Get current file content (if exists)
+        file_url = f'https://api.github.com/repos/{github_username}/{repo_name}/contents/{filename}'
+        file_response = requests.get(file_url, headers=headers, timeout=10)
+        
+        sha = None
+        if file_response.status_code == 200:
+            sha = file_response.json().get('sha')
+        
+        # Create or update file
+        import base64
+        content_encoded = base64.b64encode(code.encode('utf-8')).decode('utf-8')
+        
+        file_data = {
+            'message': message,
+            'content': content_encoded,
+            'branch': branch
+        }
+        if sha:
+            file_data['sha'] = sha
+        
+        update_response = requests.put(file_url, headers=headers, json=file_data, timeout=10)
+        
+        if update_response.status_code in [200, 201]:
+            commit_url = update_response.json().get('content', {}).get('html_url', '')
+            return jsonify({
+                'success': True,
+                'message': f'Code committed successfully',
+                'commit_url': commit_url,
+                'repo_url': f'https://github.com/{github_username}/{repo_name}'
+            }), 200
+        else:
+            return jsonify({
+                'error': f'Failed to commit: {update_response.json().get("message", "Unknown error")}'
+            }), 500
+        
+    except Exception as e:
+        print(f"Error committing to GitHub: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/git/push', methods=['POST'])
+def git_push():
+    """Push changes to GitHub (for Git operations, this is handled by commit)"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        user_profile = get_user_profile(user.id)
+        if not user_profile or not user_profile.github_connected:
+            return jsonify({
+                'error': 'GitHub account not connected',
+                'requires_connection': True
+            }), 400
+        
+        # Push is automatically handled by commit in GitHub API
+        return jsonify({
+            'success': True,
+            'message': 'Changes pushed successfully (commits are automatically pushed)'
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/git/pull', methods=['POST'])
+def git_pull():
+    """Pull latest changes from GitHub"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        user_profile = get_user_profile(user.id)
+        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub account not connected',
+                'requires_connection': True
+            }), 400
+        
+        data = request.json
+        repo_name = data.get('repo', 'codemind-project')
+        filename = data.get('filename', 'untitled.py')
+        branch = data.get('branch', 'main')
+        
+        github_token = user_profile.github_token
+        github_username = user_profile.github_username
+        
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'CodeMind/1.0'
+        }
+        
+        # Get file content from GitHub
+        file_url = f'https://api.github.com/repos/{github_username}/{repo_name}/contents/{filename}?ref={branch}'
+        file_response = requests.get(file_url, headers=headers, timeout=10)
+        
+        if file_response.status_code == 200:
+            import base64
+            file_data = file_response.json()
+            content_encoded = file_data.get('content', '')
+            content = base64.b64decode(content_encoded).decode('utf-8')
+            
+            return jsonify({
+                'success': True,
+                'code': content,
+                'message': f'Pulled latest changes from {branch} branch'
+            }), 200
+        elif file_response.status_code == 404:
+            return jsonify({
+                'error': f'File {filename} not found in repository'
+            }), 404
+        else:
+            return jsonify({
+                'error': f'Failed to pull: {file_response.json().get("message", "Unknown error")}'
+            }), 500
+        
+    except Exception as e:
+        print(f"Error pulling from GitHub: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/login.html')

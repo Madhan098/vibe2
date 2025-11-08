@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - CodeMind</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
@@ -42,7 +44,10 @@
                     <span class="logo-icon">🧠</span>
                     <span class="logo-text">CodeMind</span>
                 </div>
-                <div class="nav-links">
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu">
+                    ☰
+                </button>
+                <div class="nav-links" id="nav-links">
                     <a href="{{ url_for('index') }}" class="nav-link">Home</a>
                     <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>
                     <button id="logout-btn" class="btn btn-small" style="display: none; margin-left: 10px;">Logout</button>
@@ -105,17 +110,47 @@
                     </div>
                 </div>
             </div>
+            
+            <!-- DNA Extraction Section (shown when no style profile exists) -->
+            <div class="dna-extraction-section" id="dna-extraction-section" style="display: none;">
+                <div class="dna-card">
+                    <div class="dna-icon">🧬</div>
+                    <h2>Extract Your Coding DNA</h2>
+                    <p>Upload your code files or connect GitHub to learn your unique coding style</p>
+                    <div class="dna-actions">
+                        <a href="{{ url_for('upload') }}" class="btn btn-primary">Get Started</a>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-menu.js') }}"></script>
     <script>
         // Check authentication on load
         window.addEventListener('DOMContentLoaded', async () => {
+            // Check if token is expired
             const token = localStorage.getItem('token');
-            if (!token) {
+            const expiresAt = localStorage.getItem('token_expires_at');
+            
+            if (token && expiresAt) {
+                const expirationDate = new Date(expiresAt);
+                const now = new Date();
+                if (now > expirationDate) {
+                    // Token expired, clear it and redirect to login
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    localStorage.removeItem('token_expires_at');
+                    window.location.href = '{{ url_for("login_page") }}';
+                    return;
+                }
+            }
+            
+            const currentToken = localStorage.getItem('token');
+            if (!currentToken) {
                 window.location.href = '{{ url_for("login_page") }}';
                 return;
             }
@@ -150,9 +185,33 @@
                         }, 500);
                     }
 
-                    // Load stats if profile exists
-                    if (userData.style_profile) {
-                        loadStats(userData.style_profile);
+                    // Load stats from user_profile (interactions, acceptance rate, etc.)
+                    if (userData.user_profile) {
+                        loadStats(userData.user_profile);
+                        // Hide DNA extraction section if profile exists
+                        const dnaSection = document.getElementById('dna-extraction-section');
+                        if (dnaSection) {
+                            dnaSection.style.display = 'none';
+                        }
+                    } else if (userData.style_profile) {
+                        // If no user_profile but style_profile exists, show basic stats
+                        loadStatsFromStyleProfile(userData.style_profile);
+                        // Hide DNA extraction section if style profile exists
+                        const dnaSection = document.getElementById('dna-extraction-section');
+                        if (dnaSection) {
+                            dnaSection.style.display = 'none';
+                        }
+                    } else {
+                        // Show stats section even if no data yet (will show zeros)
+                        const statsDiv = document.getElementById('dashboard-stats');
+                        if (statsDiv) {
+                            statsDiv.style.display = 'block';
+                        }
+                        // Show DNA extraction section if no profile exists
+                        const dnaSection = document.getElementById('dna-extraction-section');
+                        if (dnaSection) {
+                            dnaSection.style.display = 'block';
+                        }
                     }
                 } else {
                     // Invalid token, clear and redirect
@@ -164,6 +223,7 @@
                 console.error('Error loading user:', error);
                 localStorage.removeItem('token');
                 localStorage.removeItem('user');
+                localStorage.removeItem('token_expires_at');
                 window.location.href = '{{ url_for("login_page") }}';
             }
         });
@@ -184,16 +244,43 @@
 
         function loadStats(profile) {
             const statsDiv = document.getElementById('dashboard-stats');
-            if (statsDiv && profile) {
+            if (statsDiv) {
                 statsDiv.style.display = 'block';
-                document.getElementById('total-interactions').textContent = profile.total_interactions || 0;
-                const acceptRate = profile.total_interactions > 0 
-                    ? Math.round((profile.suggestions_accepted / profile.total_interactions) * 100)
-                    : 0;
-                document.getElementById('acceptance-rate').textContent = acceptRate + '%';
-                document.getElementById('skill-level').textContent = profile.skill_level || 'Beginner';
-                document.getElementById('style-confidence').textContent = 
-                    Math.round((profile.style_confidence || 0) * 100) + '%';
+                
+                if (profile) {
+                    // Update stats from user profile
+                    document.getElementById('total-interactions').textContent = profile.total_interactions || 0;
+                    const acceptRate = profile.total_interactions > 0 
+                        ? Math.round((profile.suggestions_accepted / profile.total_interactions) * 100)
+                        : 0;
+                    document.getElementById('acceptance-rate').textContent = acceptRate + '%';
+                    document.getElementById('skill-level').textContent = (profile.skill_level || 'Beginner').charAt(0).toUpperCase() + (profile.skill_level || 'Beginner').slice(1);
+                    document.getElementById('style-confidence').textContent = 
+                        Math.round((profile.style_confidence || 0) * 100) + '%';
+                } else {
+                    // Show default values
+                    document.getElementById('total-interactions').textContent = '0';
+                    document.getElementById('acceptance-rate').textContent = '0%';
+                    document.getElementById('skill-level').textContent = 'Beginner';
+                    document.getElementById('style-confidence').textContent = '0%';
+                }
+            }
+        }
+        
+        function loadStatsFromStyleProfile(styleProfile) {
+            // Load basic stats from style profile (DNA data)
+            const statsDiv = document.getElementById('dashboard-stats');
+            if (statsDiv) {
+                statsDiv.style.display = 'block';
+                
+                // Use style profile data to populate stats
+                document.getElementById('total-interactions').textContent = '0';
+                document.getElementById('acceptance-rate').textContent = '0%';
+                document.getElementById('skill-level').textContent = 'Beginner';
+                
+                // Use naming_confidence as style confidence
+                const styleConfidence = styleProfile.naming_confidence || 0;
+                document.getElementById('style-confidence').textContent = Math.round(styleConfidence) + '%';
             }
         }
 

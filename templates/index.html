@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CodeMind - AI That Learns YOUR Coding Style</title>
     <meta name="description" content="CodeMind analyzes your code patterns and provides AI suggestions that match YOUR unique coding style. Support for Python, JavaScript, Java, and 20+ languages.">
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         /* Landing Page Specific Styles */
@@ -397,10 +399,56 @@
 </head>
 <body>
     <script>
+        // Mobile menu toggle
+        document.addEventListener('DOMContentLoaded', function() {
+            const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+            const navLinks = document.getElementById('nav-links');
+            
+            if (mobileMenuToggle && navLinks) {
+                mobileMenuToggle.addEventListener('click', function() {
+                    navLinks.classList.toggle('active');
+                    mobileMenuToggle.classList.toggle('active');
+                });
+                
+                // Close menu when clicking outside
+                document.addEventListener('click', function(event) {
+                    if (!navLinks.contains(event.target) && !mobileMenuToggle.contains(event.target)) {
+                        navLinks.classList.remove('active');
+                        mobileMenuToggle.classList.remove('active');
+                    }
+                });
+                
+                // Close menu when clicking on a link
+                const navLinkItems = navLinks.querySelectorAll('.nav-link, .btn');
+                navLinkItems.forEach(link => {
+                    link.addEventListener('click', function() {
+                        navLinks.classList.remove('active');
+                        mobileMenuToggle.classList.remove('active');
+                    });
+                });
+            }
+        });
+    </script>
+    <script>
         // Show user info if logged in (home page is public)
         window.addEventListener('DOMContentLoaded', async () => {
+            // Check if token is expired
             const token = localStorage.getItem('token');
-            if (token) {
+            const expiresAt = localStorage.getItem('token_expires_at');
+            
+            if (token && expiresAt) {
+                const expirationDate = new Date(expiresAt);
+                const now = new Date();
+                if (now > expirationDate) {
+                    // Token expired, clear it
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    localStorage.removeItem('token_expires_at');
+                }
+            }
+            
+            const currentToken = localStorage.getItem('token');
+            if (currentToken) {
                 try {
                     const userData = await getCurrentUser();
                     if (userData.success && userData.user) {
@@ -417,11 +465,17 @@
                                 window.location.reload();
                             });
                         }
+                    } else {
+                        // Token invalid, clear it
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        localStorage.removeItem('token_expires_at');
                     }
                 } catch (error) {
                     // Token invalid, clear it
                     localStorage.removeItem('token');
                     localStorage.removeItem('user');
+                    localStorage.removeItem('token_expires_at');
                 }
             } else {
                 // Show login/register buttons if not logged in
@@ -439,7 +493,10 @@
                     <span class="logo-icon">🧠</span>
                     <span class="logo-text">CodeMind</span>
                 </div>
-                <div class="nav-links">
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu">
+                    ☰
+                </button>
+                <div class="nav-links" id="nav-links">
                 <a href="{{ url_for('upload') }}" class="nav-link">Upload Code</a>
                 <a href="{{ url_for('editor') }}" class="nav-link">Editor</a>
                 <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>

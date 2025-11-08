@@ -8,16 +8,30 @@ const API_BASE_URL = window.location.origin;
  * Make API request
  */
 async function apiRequest(endpoint, options = {}) {
+    // Check if token is expired
     const token = localStorage.getItem('token');
+    const expiresAt = localStorage.getItem('token_expires_at');
     
+    if (token && expiresAt) {
+        const expirationDate = new Date(expiresAt);
+        const now = new Date();
+        if (now > expirationDate) {
+            // Token expired, clear it
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('token_expires_at');
+        }
+    }
+    
+    const currentToken = localStorage.getItem('token');
     const defaultOptions = {
         headers: {
             'Content-Type': 'application/json',
         }
     };
     
-    if (token) {
-        defaultOptions.headers['Authorization'] = `Bearer ${token}`;
+    if (currentToken) {
+        defaultOptions.headers['Authorization'] = `Bearer ${currentToken}`;
     }
     
     const config = {
@@ -67,6 +81,10 @@ async function register(name, email, password) {
         if (data.token) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(data.user));
+            // Store session expiration (30 days from now)
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            localStorage.setItem('token_expires_at', expirationDate.toISOString());
         }
         
         return { success: true, ...data };
@@ -85,6 +103,10 @@ async function login(email, password) {
         if (data.token) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(data.user));
+            // Store session expiration (30 days from now)
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            localStorage.setItem('token_expires_at', expirationDate.toISOString());
         }
         
         return { success: true, ...data };
@@ -101,12 +123,14 @@ async function logout() {
         
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('token_expires_at');
         
         return { success: true };
     } catch (error) {
         // Clear local storage even if request fails
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('token_expires_at');
         return { success: true };
     }
 }
@@ -227,7 +251,7 @@ async function uploadCodeFiles(files) {
 
 async function analyzeGitHubRepo(repoUrl) {
     try {
-        const data = await apiRequest('/api/github/analyze', {
+        const data = await apiRequest('/api/analyze-github', {
             method: 'POST',
             body: JSON.stringify({ repo_url: repoUrl })
         });
@@ -239,7 +263,7 @@ async function analyzeGitHubRepo(repoUrl) {
 
 async function analyzeGitHubUsername(username) {
     try {
-        const data = await apiRequest('/api/github/analyze-username', {
+        const data = await apiRequest('/api/analyze-github', {
             method: 'POST',
             body: JSON.stringify({ username: username })
         });

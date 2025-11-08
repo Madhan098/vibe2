@@ -75,6 +75,10 @@ async function signInWithGoogle() {
                         if (backendResponse.ok && data.success) {
                             localStorage.setItem('token', data.token);
                             localStorage.setItem('user', JSON.stringify(data.user));
+                            // Store session expiration (30 days from now)
+                            const expirationDate = new Date();
+                            expirationDate.setDate(expirationDate.getDate() + 30);
+                            localStorage.setItem('token_expires_at', expirationDate.toISOString());
                             resolve({ success: true, user: data.user });
                         } else {
                             reject(new Error(data.error || 'Authentication failed'));
@@ -112,6 +116,10 @@ async function signInWithEmail(email, password) {
         if (response.ok && data.success) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(data.user));
+            // Store session expiration (30 days from now)
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            localStorage.setItem('token_expires_at', expirationDate.toISOString());
             return { success: true, user: data.user };
         } else {
             throw new Error(data.error || 'Authentication failed');
@@ -138,6 +146,10 @@ async function registerWithEmail(name, email, password) {
         if (response.ok && data.success) {
             localStorage.setItem('token', data.token);
             localStorage.setItem('user', JSON.stringify(data.user));
+            // Store session expiration (30 days from now)
+            const expirationDate = new Date();
+            expirationDate.setDate(expirationDate.getDate() + 30);
+            localStorage.setItem('token_expires_at', expirationDate.toISOString());
             return { success: true, user: data.user };
         } else {
             throw new Error(data.error || 'Registration failed');
@@ -164,12 +176,14 @@ async function signOutUser() {
         
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('token_expires_at');
         return { success: true };
     } catch (error) {
         console.error('Sign out error:', error);
         // Still clear local storage
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('token_expires_at');
         return { success: true };
     }
 }

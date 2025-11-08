@@ -8,10 +8,11 @@
     <!-- PWA Meta Tags -->
     <meta name="theme-color" content="#6366f1">
     <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="CodeMind">
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
-    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/auth.css">
@@ -164,7 +165,7 @@
             </div>
 
             <div style="margin-top: 40px; text-align: center;">
-                <button class="btn btn-secondary" onclick="window.location.href='dashboard.html'">
+                <button class="btn btn-secondary" id="skip-btn">
                     Skip for Now
                 </button>
             </div>
@@ -429,7 +430,7 @@
         async function analyzeGitHubUsername(username) {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('/api/github/analyze-username', {
+                const response = await fetch('/api/analyze-github', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -448,7 +449,7 @@
         async function analyzeGitHubRepo(repoUrl) {
             try {
                 const token = localStorage.getItem('token');
-                const response = await fetch('/api/github/analyze', {
+                const response = await fetch('/api/analyze-github', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

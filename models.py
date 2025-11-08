@@ -3,7 +3,7 @@ Simple in-memory data storage for demo
 In production, use SQLAlchemy with SQLite
 """
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 import uuid
 
 # In-memory storage (resets on server restart - good for demo)
@@ -52,6 +52,12 @@ class UserProfile:
         self.evolution_history = []  # Track growth over time
         self.initial_quality_score = None
         self.current_quality_score = None
+        # GitHub health report
+        self.github_health_report = None  # Store GitHub health analysis
+        # GitHub integration
+        self.github_token = None  # Store GitHub OAuth token
+        self.github_username = None  # Store GitHub username
+        self.github_connected = False  # Track if GitHub is connected
     
     def to_dict(self):
         return {
@@ -67,7 +73,10 @@ class UserProfile:
             'dna_extracted': self.dna_extracted,
             'evolution_history': self.evolution_history,
             'initial_quality_score': self.initial_quality_score,
-            'current_quality_score': self.current_quality_score
+            'current_quality_score': self.current_quality_score,
+            'github_health_report': self.github_health_report,  # Include health report
+            'github_connected': self.github_connected,  # Include GitHub connection status
+            'github_username': self.github_username  # Include GitHub username
         }
 
 def create_user(email, name, password):
@@ -95,22 +104,50 @@ def get_user_by_id(user_id):
             return user
     return None
 
-def create_session(user_id):
-    """Create session token (persistent - doesn't expire)"""
+def create_session(user_id, expires_in_days=30):
+    """Create session token with expiration (default: 30 days)"""
     token = str(uuid.uuid4())
+    now = datetime.utcnow()
     sessions_db[token] = {
         'user_id': user_id,
-        'created_at': datetime.utcnow(),
-        'last_accessed': datetime.utcnow()
+        'created_at': now,
+        'last_accessed': now,
+        'expires_at': now + timedelta(days=expires_in_days)
     }
     return token
 
 def get_session(token):
-    """Get session and update last accessed time"""
+    """Get session and update last accessed time - returns None if expired"""
     session = sessions_db.get(token)
-    if session:
-        session['last_accessed'] = datetime.utcnow()
+    if not session:
+        return None
+    
+    # Check if session has expired
+    now = datetime.utcnow()
+    if session.get('expires_at') and now > session['expires_at']:
+        # Session expired, delete it
+        delete_session(token)
+        return None
+    
+    # Update last accessed time and extend expiration (refresh on activity)
+    session['last_accessed'] = now
+    # Extend expiration by 30 days from last access (keep session alive if user is active)
+    session['expires_at'] = now + timedelta(days=30)
+    
     return session
+
+def cleanup_expired_sessions():
+    """Remove expired sessions (call periodically)"""
+    now = datetime.utcnow()
+    expired_tokens = []
+    for token, session in sessions_db.items():
+        if session.get('expires_at') and now > session['expires_at']:
+            expired_tokens.append(token)
+    
+    for token in expired_tokens:
+        delete_session(token)
+    
+    return len(expired_tokens)
 
 def delete_session(token):
     """Delete session"""

@@ -12,10 +12,39 @@ if (typeof window.API_BASE === 'undefined') {
 
 // Ensure utility functions are available
 if (typeof getStyleProfile === 'undefined') {
-    function getStyleProfile() {
+    async function getStyleProfile() {
+        // Try to use global async version if available
+        if (typeof window.getStyleProfile === 'function') {
+            return await window.getStyleProfile();
+        }
+        // Fallback to localStorage
         const profile = localStorage.getItem('codemind_style_profile');
         return profile ? JSON.parse(profile) : null;
     }
+    window.getStyleProfile = getStyleProfile;
+}
+
+// Ensure getCurrentUser is available
+if (typeof getCurrentUser === 'undefined') {
+    async function getCurrentUser() {
+        // Try to use global version if available
+        if (typeof window.getCurrentUser === 'function') {
+            return await window.getCurrentUser();
+        }
+        // Fallback to API call
+        try {
+            const response = await fetch(`${window.API_BASE}/api/auth/me`, {
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                }
+            });
+            const data = await response.json();
+            return { success: true, ...data };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    window.getCurrentUser = getCurrentUser;
 }
 
 if (typeof saveStyleProfile === 'undefined') {
@@ -43,6 +72,9 @@ require(['vs/editor/editor.main'], function () {
         minimap: { enabled: false }
     });
     
+    // Initialize sidebar after editor is ready
+    initializeSidebar();
+    
     // Listen for code changes
     editor.onDidChangeModelContent(() => {
         clearTimeout(suggestionTimeout);
@@ -54,24 +86,63 @@ require(['vs/editor/editor.main'], function () {
     });
     
     // Selection context menu - show when text is selected
+    let selectionTimeout = null;
     editor.onDidChangeCursorSelection(() => {
         const selection = editor.getSelection();
+        
+        // Clear any pending hide timeout
+        if (selectionTimeout) {
+            clearTimeout(selectionTimeout);
+            selectionTimeout = null;
+        }
+        
         if (selection && !selection.isEmpty()) {
             // Small delay to allow selection to complete
             setTimeout(() => {
-                if (editor.getSelection() && !editor.getSelection().isEmpty()) {
-                    showSelectionContextMenu(editor.getSelection());
+                const currentSelection = editor.getSelection();
+                if (currentSelection && !currentSelection.isEmpty()) {
+                    showSelectionContextMenu(currentSelection);
                 }
-            }, 100);
+            }, 150);
         } else {
-            hideSelectionContextMenu();
+            // Delay hiding to allow clicking on menu
+            selectionTimeout = setTimeout(() => {
+                hideSelectionContextMenu();
+            }, 200);
         }
     });
     
-    // Hide menu when clicking outside
-    document.addEventListener('click', (e) => {
+    // Prevent default browser context menu on editor
+    editor.onContextMenu((e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    });
+    
+    // Hide menu when clicking outside (but not on the menu itself)
+    document.addEventListener('mousedown', (e) => {
         if (selectionContextMenu && !selectionContextMenu.contains(e.target)) {
-            hideSelectionContextMenu();
+            // Check if clicking on editor
+            const editorContainer = document.getElementById('monaco-editor');
+            if (editorContainer && !editorContainer.contains(e.target)) {
+                // Only hide if selection is cleared
+                const selection = editor.getSelection();
+                if (!selection || selection.isEmpty()) {
+                    hideSelectionContextMenu();
+                }
+            }
+        }
+    });
+    
+    // Keep menu visible while text is selected
+    editor.onDidChangeModelContent(() => {
+        const selection = editor.getSelection();
+        if (selection && !selection.isEmpty() && selectionContextMenu) {
+            // Update menu position if selection changes
+            const selectedText = editor.getModel().getValueInRange(selection);
+            if (selectedText && selectedText.trim().length > 0) {
+                // Menu is still valid, keep it visible
+                return;
+            }
         }
     });
     
@@ -129,44 +200,42 @@ if (clearBtn) {
 
 // Template buttons
 let selectedTemplate = null;
-const templateButtons = document.querySelectorAll('.template-btn');
-templateButtons.forEach(btn => {
-    btn.addEventListener('click', () => {
-        // Remove active class from all buttons
-        templateButtons.forEach(b => b.classList.remove('active'));
-        // Add active class to clicked button
-        btn.classList.add('active');
-        selectedTemplate = btn.dataset.template;
-        
-        // Update input placeholder based on template
-        const codeRequestInput = document.getElementById('code-request-input');
-        const templates = {
-            'web-app': 'Create a modern web application with...',
-            'flask-app': 'Create a Flask web application with...',
-            'static-site': 'Create a static website with...',
-            'rest-api': 'Create a REST API with endpoints for...',
-            'cli-tool': 'Create a command-line tool that...',
-            'data-analysis': 'Create a data analysis script that...'
-        };
-        if (codeRequestInput && templates[selectedTemplate]) {
-            codeRequestInput.placeholder = templates[selectedTemplate];
-        }
+// Custom Stack Button Toggle
+const customStackBtn = document.getElementById('custom-stack-btn');
+const techStackInputContainer = document.getElementById('tech-stack-input-container');
+if (customStackBtn && techStackInputContainer) {
+    customStackBtn.addEventListener('click', () => {
+        const isVisible = techStackInputContainer.style.display !== 'none';
+        techStackInputContainer.style.display = isVisible ? 'none' : 'block';
+        customStackBtn.textContent = isVisible ? '🔧 Custom Stack' : '✕ Close';
     });
-});
+}
+
+// Template buttons removed - no longer needed
 
 // Accept/Reject buttons
-const acceptBtn = document.getElementById('accept-btn');
-const rejectBtn = document.getElementById('reject-btn');
+const acceptBtn = document.getElementById('accept-suggestion-btn') || document.getElementById('accept-btn');
+const rejectBtn = document.getElementById('reject-suggestion-btn') || document.getElementById('reject-btn');
+const closeSuggestionBtn = document.getElementById('close-suggestion-btn');
+const explainMoreBtn = document.getElementById('explain-more-btn');
 
 if (acceptBtn) {
     acceptBtn.addEventListener('click', async () => {
-        const suggestionCode = document.getElementById('suggestion-code').textContent;
+        // Get improved code from comparison view
+        const improvedCodeEl = document.getElementById('improved-code');
+        const suggestionCode = improvedCodeEl ? improvedCodeEl.textContent : 
+                              (document.getElementById('suggestion-code') ? document.getElementById('suggestion-code').textContent : '');
         const originalCode = originalCodeBeforeSuggestion || (editor ? editor.getValue() : '');
         
         if (editor && suggestionCode) {
             editor.setValue(suggestionCode);
             hideSuggestion();
             updateStatus('Code updated!', 'success');
+            
+            // Show toast notification
+            if (typeof showToast === 'function') {
+                showToast('Suggestion applied to your code', 'success');
+            }
             
             // Send feedback to backend to learn from acceptance
             const styleProfile = getStyleProfile();
@@ -205,13 +274,40 @@ if (acceptBtn) {
     });
 }
 
+// Close suggestion button
+if (closeSuggestionBtn) {
+    closeSuggestionBtn.addEventListener('click', () => {
+        hideSuggestion();
+    });
+}
+
+// Explain more button
+if (explainMoreBtn) {
+    explainMoreBtn.addEventListener('click', () => {
+        const styleExplanation = document.getElementById('style-explanation');
+        if (styleExplanation) {
+            // Could expand explanation or show more details
+            if (typeof showToast === 'function') {
+                showToast('Detailed explanation shown in the panel below', 'info');
+            }
+        }
+    });
+}
+
 if (rejectBtn) {
     rejectBtn.addEventListener('click', async () => {
         const originalCode = originalCodeBeforeSuggestion || (editor ? editor.getValue() : '');
-        const suggestionCode = document.getElementById('suggestion-code').textContent;
+        const improvedCodeEl = document.getElementById('improved-code');
+        const suggestionCode = improvedCodeEl ? improvedCodeEl.textContent : 
+                              (document.getElementById('suggestion-code') ? document.getElementById('suggestion-code').textContent : '');
         
         hideSuggestion();
         updateStatus('Suggestion rejected', 'info');
+        
+        // Show toast notification
+        if (typeof showToast === 'function') {
+            showToast('Suggestion rejected', 'info');
+        }
         
         // Send feedback to backend
         const styleProfile = getStyleProfile();
@@ -330,70 +426,117 @@ async function getSuggestion() {
 }
 
 function displaySuggestion(suggestion) {
-    const suggestionEl = document.getElementById('suggestion');
+    const suggestionPanel = document.getElementById('suggestion-panel');
     const noSuggestionEl = document.getElementById('no-suggestion');
     const loadingEl = document.getElementById('loading-suggestion');
     
-    if (suggestionEl) {
-        // Clear any previous teaching moments
-        const existingTeaching = suggestionEl.querySelector('.teaching-moment');
-        if (existingTeaching) {
-            existingTeaching.remove();
+    if (suggestionPanel) {
+        // Get original code
+        const originalCode = originalCodeBeforeSuggestion || (editor ? editor.getValue() : '');
+        const improvedCode = suggestion.improved_code || '';
+        
+        // Display side-by-side comparison
+        const originalCodeEl = document.getElementById('original-code');
+        const improvedCodeEl = document.getElementById('improved-code');
+        
+        if (originalCodeEl) {
+            originalCodeEl.textContent = originalCode;
+        }
+        if (improvedCodeEl) {
+            improvedCodeEl.textContent = improvedCode;
         }
         
-        // Clear any previous context indicators
-        const existingContext = suggestionEl.querySelector('.context-indicator');
-        if (existingContext) {
-            existingContext.remove();
+        // Update confidence badge
+        const confidenceEl = document.getElementById('confidence-value');
+        if (confidenceEl) {
+            const confidence = suggestion.confidence || suggestion.style_match || 85;
+            confidenceEl.textContent = `${Math.round(confidence)}%`;
         }
         
-        document.getElementById('suggestion-explanation').textContent = suggestion.explanation || 'Improved version';
-        document.getElementById('suggestion-code').textContent = suggestion.improved_code || '';
-        
-        const explanationEl = document.getElementById('suggestion-explanation');
-        
-        // Show context if available
-        if (suggestion.context) {
-            const contextHTML = `<div class="context-indicator" style="margin-bottom: 8px; font-size: 0.85rem; color: var(--text-secondary);">🎯 Context: <strong>${suggestion.context}</strong></div>`;
-            if (explanationEl) {
-                explanationEl.insertAdjacentHTML('beforebegin', contextHTML);
-            }
-        }
-        
-        // Display teaching moment if available
-        if (suggestion.teaching) {
-            const teachingHTML = `
-                <div class="teaching-moment" style="margin-top: 12px; padding: 12px; background: var(--bg-color); border-radius: 6px; border-left: 3px solid var(--primary-color);">
-                    <h5 style="margin-bottom: 8px; color: var(--primary-color);">📚 Why This Is Better:</h5>
-                    <p style="margin-bottom: 8px; font-size: 0.9rem;">${suggestion.teaching.why || suggestion.teaching.what || ''}</p>
-                    <details style="margin-top: 8px;">
-                        <summary style="cursor: pointer; color: var(--text-secondary); font-size: 0.85rem;">Learn More</summary>
-                        <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border-color);">
-                            <p style="font-size: 0.85rem; margin-bottom: 4px;"><strong>When to use:</strong> ${suggestion.teaching.when_to_use || 'In similar situations'}</p>
-                            <p style="font-size: 0.85rem;"><strong>Tips:</strong> ${suggestion.teaching.tips || 'Keep practicing!'}</p>
-                        </div>
-                    </details>
-                </div>
-            `;
+        // Populate changes list
+        const changesList = document.getElementById('changes-list');
+        if (changesList) {
+            changesList.innerHTML = '';
             
-            // Insert teaching moment after explanation
-            if (explanationEl) {
-                explanationEl.insertAdjacentHTML('afterend', teachingHTML);
-            }
+            // Extract changes from explanation or generate them
+            const changes = extractChanges(originalCode, improvedCode, suggestion.explanation);
+            changes.forEach(change => {
+                const li = document.createElement('li');
+                li.textContent = change;
+                changesList.appendChild(li);
+            });
         }
         
-        suggestionEl.style.display = 'block';
+        // Display style explanation
+        const styleExplanation = document.getElementById('style-explanation');
+        if (styleExplanation) {
+            let explanation = suggestion.explanation || suggestion.teaching?.why || 'This improvement matches your coding style.';
+            
+            // Add style match details if available
+            if (suggestion.style_match) {
+                explanation += ` The AI matched your style with ${Math.round(suggestion.style_match)}% confidence.`;
+            }
+            
+            if (suggestion.teaching) {
+                explanation += ` ${suggestion.teaching.what || ''}`;
+            }
+            
+            styleExplanation.textContent = explanation;
+        }
+        
+        // Show suggestion panel
+        suggestionPanel.style.display = 'block';
+        
+        // Scroll to suggestion
+        suggestionPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
     
     if (noSuggestionEl) noSuggestionEl.style.display = 'none';
     if (loadingEl) loadingEl.style.display = 'none';
 }
 
+function extractChanges(original, improved, explanation) {
+    const changes = [];
+    
+    // Try to extract from explanation
+    if (explanation) {
+        // Look for bullet points or numbered lists
+        const lines = explanation.split('\n');
+        lines.forEach(line => {
+            const trimmed = line.trim();
+            if (trimmed.match(/^[-•*]\s+/) || trimmed.match(/^\d+\.\s+/)) {
+                changes.push(trimmed.replace(/^[-•*\d.]+\s+/, ''));
+            }
+        });
+    }
+    
+    // If no changes found, generate generic ones
+    if (changes.length === 0) {
+        if (original.length !== improved.length) {
+            changes.push('Code structure improved');
+        }
+        if (improved.includes('def ') && !original.includes('def ')) {
+            changes.push('Function definition added');
+        }
+        if (improved.includes('"""') || improved.includes("'''")) {
+            changes.push('Documentation added');
+        }
+        if (improved.includes('type:') || improved.includes('->')) {
+            changes.push('Type hints added');
+        }
+        changes.push('Style matched to your coding patterns');
+    }
+    
+    return changes.slice(0, 5); // Limit to 5 changes
+}
+
 function hideSuggestion() {
-    const suggestionEl = document.getElementById('suggestion');
+    const suggestionPanel = document.getElementById('suggestion-panel');
+    const suggestionEl = document.getElementById('suggestion'); // Old element (for backward compatibility)
     const noSuggestionEl = document.getElementById('no-suggestion');
     const loadingEl = document.getElementById('loading-suggestion');
     
+    if (suggestionPanel) suggestionPanel.style.display = 'none';
     if (suggestionEl) suggestionEl.style.display = 'none';
     if (noSuggestionEl) noSuggestionEl.style.display = 'block';
     if (loadingEl) loadingEl.style.display = 'none';
@@ -489,34 +632,66 @@ async function generateCodeFromRequest() {
     const languageSelector = document.getElementById('language-selector');
     const selectedLanguage = languageSelector ? languageSelector.value : 'python';
     
+    // Helper function to get language selector (reuse the one declared above)
+    const getLangSelector = () => languageSelector || document.getElementById('language-selector');
+    
     if (!request && !selectedTemplate) {
         updateStatus('Please enter a request or select a template', 'warning');
         return;
     }
     
-    const styleProfile = getStyleProfile();
-    
-    if (!styleProfile) {
-        updateStatus('No style profile found. Please upload code first.', 'warning');
-        return;
+    // Get style profile if available, otherwise use default
+    let styleProfile;
+    let healthReport = null;
+    try {
+        styleProfile = await getStyleProfile();
+        
+        // Try to get GitHub health report from user profile
+        try {
+            if (typeof getCurrentUser === 'function') {
+                const userData = await getCurrentUser();
+                if (userData && userData.success && userData.user_profile && userData.user_profile.github_health_report) {
+                    healthReport = userData.user_profile.github_health_report;
+                    console.log('Found GitHub health report with', healthReport.bad_patterns?.length || 0, 'issues');
+                }
+            }
+        } catch (e) {
+            console.log('No GitHub health report available:', e);
+        }
+    } catch (error) {
+        console.log('Error getting style profile:', error);
+        styleProfile = null;
     }
     
-    // Build the full request
-    let fullRequest = request;
-    if (selectedTemplate) {
-        const templateRequests = {
-            'web-app': 'Create a complete modern web application',
-            'flask-app': 'Create a complete Flask web application',
-            'static-site': 'Create a complete static website',
-            'rest-api': 'Create a complete REST API',
-            'cli-tool': 'Create a complete command-line tool',
-            'data-analysis': 'Create a complete data analysis script'
+    // Use default if no profile found
+    if (!styleProfile) {
+        styleProfile = {
+            naming_style: 'snake_case',
+            naming_confidence: 80,
+            documentation_percentage: 50,
+            type_hints_percentage: 30,
+            code_quality_score: 70
         };
-        fullRequest = `${templateRequests[selectedTemplate]}${request ? ': ' + request : ''}`;
+    }
+    
+    // Build the full request - focus on fixing errors found by AI recommender
+    let fullRequest = request;
+    
+    // Get current code to check for errors
+    const currentCode = editor ? editor.getValue() : '';
+    
+    // If there's existing code, focus on fixing errors
+    if (currentCode && currentCode.trim() && currentCode !== '# Start typing your Python code here...\n\n') {
+        fullRequest = `Fix errors and improve this code based on AI recommendations: ${request}`;
     }
     
     if (techStack) {
         fullRequest += ` using ${techStack}`;
+    }
+    
+    // Add style profile context to request
+    if (styleProfile) {
+        fullRequest += `. Match my coding style: ${styleProfile.naming_style || 'snake_case'} naming, ${styleProfile.documentation_percentage || 0}% documentation, ${styleProfile.type_hints_percentage || 0}% type hints.`;
     }
     
     updateStatus('Generating code...', 'loading');
@@ -534,81 +709,52 @@ async function generateCodeFromRequest() {
                 style_profile: styleProfile,
                 language: selectedLanguage,
                 template: selectedTemplate,
-                tech_stack: techStack
+                tech_stack: techStack,
+                health_report: healthReport  // Include health report if available
             })
         });
         
         const data = await response.json();
         
         if (response.ok && data.success) {
+            hideLoadingSuggestion();
+            
+            // Store generated code for accept/reject
+            window.generatedCodeData = data;
+            
             // Check if it's multi-file generation
-            if (data.files && Array.isArray(data.files) && data.files.length > 1) {
-                // For multi-file, insert the first file into editor and show others in panel
-                if (data.files.length > 0 && editor) {
-                    const firstFile = data.files[0];
-                    const code = firstFile.code || firstFile.content || '';
-                    const filename = firstFile.filename || firstFile.name || 'generated';
-                    
-                    // Detect language from filename or use selected language
-                    const languageSelector = document.getElementById('language-selector');
-                    const currentLang = languageSelector ? languageSelector.value : 'python';
-                    const fileLang = detectLanguageFromCode(code) || currentLang || 'python';
-                    
-                    // Insert code directly into editor
-                    editor.setValue(code);
-                    monaco.editor.setModelLanguage(editor.getModel(), fileLang);
-                    
-                    // Update language selector to match
-                    const languageSelector = document.getElementById('language-selector');
-                    if (languageSelector) {
-                        languageSelector.value = fileLang;
-                    }
-                    
-                    updateStatus(`Code generated! ${data.files.length} files total. First file inserted into editor.`, 'success');
-                }
-                // Show remaining files in the panel
-                displayMultiFileCode(data.files, data.explanation || 'Code generated');
+            if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+                // Show accept/reject dialog for multi-file generation
+                showAcceptRejectDialog(data.files, data.explanation || 'Code generated', true);
             } else if (data.code) {
-                // Single file - insert directly into editor
-                if (editor) {
-                    const code = data.code;
-                    const languageSelector = document.getElementById('language-selector');
-                    const currentLang = languageSelector ? languageSelector.value : 'python';
-                    const detectedLang = detectLanguageFromCode(code) || currentLang || 'python';
-                    
-                    // Insert code directly into editor
-                    editor.setValue(code);
-                    monaco.editor.setModelLanguage(editor.getModel(), detectedLang);
-                    
-                    // Update language selector to match
-                    const languageSelector = document.getElementById('language-selector');
-                    if (languageSelector) {
-                        languageSelector.value = detectedLang;
-                    }
-                    
-                    updateStatus(`Code generated and inserted into editor! ${data.explanation || ''}`, 'success');
-                } else {
-                    // Fallback to old display method if editor not available
-                    displayGeneratedCode(data.code, data.explanation || 'Code generated');
-                    updateStatus('Code generated!', 'success');
-                }
+                // Single file - show accept/reject dialog
+                showAcceptRejectDialog([{ code: data.code, filename: 'generated.py' }], data.explanation || 'Code generated', false);
             } else {
                 hideLoadingSuggestion();
                 updateStatus('No code generated', 'error');
                 return;
             }
+            
             codeRequestInput.value = ''; // Clear input
             if (techStackInput) techStackInput.value = ''; // Clear tech stack
-            // Clear template selection
-            templateButtons.forEach(b => b.classList.remove('active'));
+            // Clear template selection (template buttons removed, so no need to clear)
             selectedTemplate = null;
         } else {
             hideLoadingSuggestion();
-            updateStatus(data.error || 'Unable to generate code', 'error');
+            const errorMsg = data.error || 'Unable to generate code';
+            updateStatus(errorMsg, 'error');
+            if (typeof showToast === 'function') {
+                showToast(errorMsg, 'error');
+            }
         }
     } catch (error) {
         hideLoadingSuggestion();
-        updateStatus('Network error', 'error');
+        const errorMsg = 'Network error: ' + (error.message || 'Failed to connect to server');
+        updateStatus(errorMsg, 'error');
+        console.error('Code generation error:', error);
+        if (typeof showToast === 'function') {
+            showToast(errorMsg, 'error');
+        }
     }
 }
 
@@ -782,20 +928,24 @@ let selectionContextMenu = null;
 let currentSelection = null;
 
 function showSelectionContextMenu(selection) {
-    // Remove existing menu
-    if (selectionContextMenu) {
-        selectionContextMenu.remove();
-    }
-    
     // Get selected text
     const selectedText = editor.getModel().getValueInRange(selection);
     if (!selectedText || selectedText.trim().length === 0) {
         return;
     }
     
+    // Store current selection
+    currentSelection = selection;
+    
+    // Remove existing menu if it exists
+    if (selectionContextMenu) {
+        selectionContextMenu.remove();
+    }
+    
     // Create context menu
     selectionContextMenu = document.createElement('div');
     selectionContextMenu.className = 'selection-context-menu';
+    selectionContextMenu.style.zIndex = '10000'; // Ensure it's on top
     selectionContextMenu.innerHTML = `
         <div class="context-menu-item" id="edit-with-ai">
             <span class="menu-icon">✨</span>
@@ -822,14 +972,58 @@ function showSelectionContextMenu(selection) {
     
     document.body.appendChild(selectionContextMenu);
     
-    // Position menu near selection
-    const position = editor.getScrolledVisiblePosition(selection.getStartPosition());
-    const coords = editor.getScrolledVisiblePosition(selection.getEndPosition());
-    const editorContainer = document.getElementById('monaco-editor');
-    const rect = editorContainer.getBoundingClientRect();
+    // Position menu near selection - better positioning
+    try {
+        const position = editor.getScrolledVisiblePosition(selection.getStartPosition());
+        const editorContainer = document.getElementById('monaco-editor');
+        const rect = editorContainer.getBoundingClientRect();
+        
+        // Calculate position relative to viewport
+        const menuTop = rect.top + (position.top || 0) - 10; // Position above selection
+        const menuLeft = rect.left + (position.left || 0);
+        
+        // Ensure menu stays within viewport
+        const menuRect = selectionContextMenu.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        let finalTop = menuTop;
+        let finalLeft = menuLeft;
+        
+        // Adjust if menu would go off screen
+        if (finalLeft + menuRect.width > viewportWidth) {
+            finalLeft = viewportWidth - menuRect.width - 10;
+        }
+        if (finalTop + menuRect.height > viewportHeight) {
+            finalTop = rect.top + (position.top || 0) - menuRect.height - 10; // Position above
+        }
+        if (finalTop < 0) {
+            finalTop = rect.top + (position.top || 0) + 20; // Position below if no room above
+        }
+        if (finalLeft < 0) {
+            finalLeft = 10;
+        }
+        
+        selectionContextMenu.style.top = `${finalTop}px`;
+        selectionContextMenu.style.left = `${finalLeft}px`;
+        selectionContextMenu.style.position = 'fixed'; // Use fixed positioning
+    } catch (error) {
+        console.error('Error positioning menu:', error);
+        // Fallback positioning
+        selectionContextMenu.style.top = '50%';
+        selectionContextMenu.style.left = '50%';
+        selectionContextMenu.style.transform = 'translate(-50%, -50%)';
+        selectionContextMenu.style.position = 'fixed';
+    }
     
-    selectionContextMenu.style.top = `${rect.top + (coords.top || 0) + 20}px`;
-    selectionContextMenu.style.left = `${rect.left + (coords.left || 0)}px`;
+    // Prevent clicks on menu from hiding it
+    selectionContextMenu.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+    });
+    
+    selectionContextMenu.addEventListener('click', (e) => {
+        e.stopPropagation();
+    });
     
     // Event listeners
     const editWithAI = selectionContextMenu.querySelector('#edit-with-ai');
@@ -837,19 +1031,24 @@ function showSelectionContextMenu(selection) {
     const languageSubmenu = selectionContextMenu.querySelector('#language-submenu');
     const submenuItems = selectionContextMenu.querySelectorAll('.submenu-item');
     
-    editWithAI.addEventListener('click', () => {
+    editWithAI.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
         editSelectedCodeWithAI(selection, selectedText);
         hideSelectionContextMenu();
     });
     
     changeLanguage.addEventListener('click', (e) => {
         e.stopPropagation();
+        e.preventDefault();
         const isVisible = languageSubmenu.style.display !== 'none';
         languageSubmenu.style.display = isVisible ? 'none' : 'block';
     });
     
     submenuItems.forEach(item => {
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
             const targetLang = item.dataset.lang;
             convertSelectedCodeToLanguage(selection, selectedText, targetLang);
             hideSelectionContextMenu();
@@ -995,7 +1194,16 @@ function detectLanguageFromCode(code) {
 
 // VS Code Menu Functionality
 function initializeVSCodeMenu() {
-    if (!editor) return;
+    // Wait for editor to be initialized
+    if (!editor) {
+        // Retry after a short delay if editor is not ready
+        setTimeout(() => {
+            if (editor) {
+                initializeVSCodeMenu();
+            }
+        }, 100);
+        return;
+    }
     
     let currentFontSize = 14;
     let isMinimapEnabled = false;
@@ -1436,3 +1644,692 @@ async function selectStyleOption(option, originalCode) {
         updateStatus('Style applied!', 'success');
     }
 }
+
+// VS Code Sidebar Functionality
+function initializeSidebar() {
+    // Toggle Sidebar
+    const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+    const sidebar = document.getElementById('vscode-sidebar');
+    if (toggleSidebarBtn && sidebar) {
+        toggleSidebarBtn.addEventListener('click', () => {
+            sidebar.classList.toggle('collapsed');
+            toggleSidebarBtn.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+        });
+    }
+    
+    // New Folder
+    const newFolderBtn = document.getElementById('new-folder-btn');
+    if (newFolderBtn) {
+        newFolderBtn.addEventListener('click', () => {
+            const folderName = prompt('Enter folder name:');
+            if (folderName) {
+                addFolderToTree(folderName);
+                if (typeof showToast === 'function') {
+                    showToast(`Folder "${folderName}" created`, 'success');
+                }
+            }
+        });
+    }
+    
+    // New File (Sidebar)
+    const newFileSidebarBtn = document.getElementById('new-file-sidebar-btn');
+    if (newFileSidebarBtn) {
+        newFileSidebarBtn.addEventListener('click', () => {
+            const fileName = prompt('Enter file name (e.g., app.py):');
+            if (fileName) {
+                addFileToTree(fileName);
+                if (editor) {
+                    editor.setValue('');
+                    const lang = getLanguageFromFileName(fileName);
+                    monaco.editor.setModelLanguage(editor.getModel(), lang);
+                    const langSelector = document.getElementById('language-selector');
+                    if (langSelector) langSelector.value = lang;
+                }
+                if (typeof showToast === 'function') {
+                    showToast(`File "${fileName}" created`, 'success');
+                }
+            }
+        });
+    }
+    
+    // Check GitHub connection status
+    checkGitHubConnection();
+    
+    // Connect GitHub Button
+    document.getElementById('connect-github-btn')?.addEventListener('click', () => {
+        showGitHubConnectionModal();
+    });
+    
+    // Close GitHub Modal
+    document.getElementById('close-github-modal-btn')?.addEventListener('click', () => {
+        hideGitHubConnectionModal();
+    });
+    
+    // Connect GitHub Submit
+    document.getElementById('connect-github-submit-btn')?.addEventListener('click', async () => {
+        await connectGitHub();
+    });
+    
+    // Disconnect GitHub
+    document.getElementById('git-disconnect-btn')?.addEventListener('click', async () => {
+        await disconnectGitHub();
+    });
+    
+    // Git Actions
+    document.getElementById('git-status-btn')?.addEventListener('click', async () => {
+        await gitStatus();
+    });
+    
+    document.getElementById('git-commit-btn')?.addEventListener('click', async () => {
+        await gitCommit();
+    });
+    
+    document.getElementById('git-push-btn')?.addEventListener('click', async () => {
+        await gitPush();
+    });
+    
+    document.getElementById('git-pull-btn')?.addEventListener('click', async () => {
+        await gitPull();
+    });
+    
+    // Run Actions (Sidebar)
+    document.getElementById('run-code-sidebar-btn')?.addEventListener('click', () => {
+        document.getElementById('run-code')?.click();
+    });
+    
+    document.getElementById('debug-code-sidebar-btn')?.addEventListener('click', () => {
+        document.getElementById('debug-code')?.click();
+    });
+    
+    document.getElementById('format-code-sidebar-btn')?.addEventListener('click', () => {
+        document.getElementById('format-code')?.click();
+    });
+    
+    // File Tree Click
+    const fileTreeItems = document.querySelectorAll('.file-tree-item');
+    fileTreeItems.forEach(item => {
+        item.addEventListener('click', () => {
+            fileTreeItems.forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            const fileName = item.dataset.file;
+            if (fileName && typeof showToast === 'function') {
+                showToast(`Opened: ${fileName}`, 'info');
+            }
+        });
+    });
+}
+
+function addFolderToTree(folderName) {
+    const fileTree = document.getElementById('file-tree');
+    if (fileTree) {
+        const folderItem = document.createElement('div');
+        folderItem.className = 'file-tree-item';
+        folderItem.innerHTML = `
+            <span class="file-icon">📁</span>
+            <span class="file-name">${folderName}</span>
+        `;
+        fileTree.appendChild(folderItem);
+    }
+}
+
+function addFileToTree(fileName) {
+    const fileTree = document.getElementById('file-tree');
+    if (fileTree) {
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-tree-item';
+        fileItem.dataset.file = fileName;
+        const icon = getFileIcon(fileName);
+        fileItem.innerHTML = `
+            <span class="file-icon">${icon}</span>
+            <span class="file-name">${fileName}</span>
+        `;
+        fileTree.appendChild(fileItem);
+        fileItem.addEventListener('click', () => {
+            document.querySelectorAll('.file-tree-item').forEach(i => i.classList.remove('active'));
+            fileItem.classList.add('active');
+        });
+    }
+}
+
+function getFileIcon(fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    const icons = {
+        'py': '🐍', 'js': '📜', 'ts': '📘', 'java': '☕', 'html': '🌐',
+        'css': '🎨', 'json': '📋', 'md': '📝', 'txt': '📄', 'jsx': '⚛️',
+        'tsx': '⚛️', 'vue': '💚', 'go': '🐹', 'rs': '🦀', 'php': '🐘'
+    };
+    return icons[ext] || '📄';
+}
+
+function getLanguageFromFileName(fileName) {
+    const ext = fileName.split('.').pop().toLowerCase();
+    const langMap = {
+        'py': 'python', 'js': 'javascript', 'ts': 'typescript', 'java': 'java',
+        'html': 'html', 'css': 'css', 'json': 'json', 'md': 'markdown'
+    };
+    return langMap[ext] || 'python';
+}
+
+// Accept/Reject Dialog Functions
+function showAcceptRejectDialog(files, explanation, isMultiFile) {
+    const dialog = document.getElementById('accept-reject-dialog');
+    const dialogExplanation = document.getElementById('dialog-explanation');
+    const dialogFilesList = document.getElementById('dialog-files-list');
+    
+    if (!dialog) return;
+    
+    // Hide other panels
+    hideGeneratedCode();
+    hideSuggestion();
+    document.getElementById('no-suggestion')?.style.setProperty('display', 'none');
+    document.getElementById('loading-suggestion')?.style.setProperty('display', 'none');
+    
+    // Set explanation
+    if (dialogExplanation) {
+        dialogExplanation.textContent = explanation || 
+            (isMultiFile ? `Generated ${files.length} files to address all issues. Review and accept to apply.` : 
+             'Code generated. Review and accept to apply.');
+    }
+    
+    // Display files
+    if (dialogFilesList) {
+        dialogFilesList.innerHTML = '';
+        files.forEach((file, index) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'dialog-file-item';
+            const fileName = file.filename || file.name || `file_${index + 1}.py`;
+            const fileCode = file.code || file.content || '';
+            const fileSize = fileCode.length;
+            const icon = getFileIcon(fileName);
+            
+            fileItem.innerHTML = `
+                <span class="file-icon">${icon}</span>
+                <div class="file-info">
+                    <div class="file-name">${fileName}</div>
+                    <div class="file-size">${(fileSize / 1024).toFixed(2)} KB</div>
+                </div>
+            `;
+            dialogFilesList.appendChild(fileItem);
+        });
+    }
+    
+    // Show dialog
+    dialog.style.display = 'block';
+    
+    // Scroll to dialog
+    dialog.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideAcceptRejectDialog() {
+    const dialog = document.getElementById('accept-reject-dialog');
+    if (dialog) {
+        dialog.style.display = 'none';
+    }
+}
+
+// Accept All Code
+function acceptAllCode() {
+    const data = window.generatedCodeData;
+    if (!data) return;
+    
+    hideAcceptRejectDialog();
+    
+    if (data.files && Array.isArray(data.files) && data.files.length > 0) {
+        // Multi-file: Insert first file into editor, add others to file tree
+        const firstFile = data.files[0];
+        const code = firstFile.code || firstFile.content || '';
+        const filename = firstFile.filename || firstFile.name || 'generated.py';
+        
+        if (editor && code) {
+            const langSelector = document.getElementById('language-selector');
+            const currentLang = langSelector ? langSelector.value : 'python';
+            const fileLang = detectLanguageFromCode(code) || getLanguageFromFileName(filename) || currentLang;
+            
+            // Insert first file into editor
+            editor.setValue(code);
+            monaco.editor.setModelLanguage(editor.getModel(), fileLang);
+            
+            if (langSelector) {
+                langSelector.value = fileLang;
+            }
+            
+            // Add other files to file tree
+            for (let i = 1; i < data.files.length; i++) {
+                const file = data.files[i];
+                const fileName = file.filename || file.name || `file_${i + 1}.py`;
+                addFileToTree(fileName);
+            }
+            
+            updateStatus(`✅ Accepted! ${data.files.length} files applied. First file in editor.`, 'success');
+            if (typeof showToast === 'function') {
+                showToast(`✅ Accepted! ${data.files.length} files applied.`, 'success');
+            }
+        }
+    } else if (data.code) {
+        // Single file
+        if (editor) {
+            const code = data.code;
+            const langSelector = document.getElementById('language-selector');
+            const currentLang = langSelector ? langSelector.value : 'python';
+            const detectedLang = detectLanguageFromCode(code) || currentLang;
+            
+            editor.setValue(code);
+            monaco.editor.setModelLanguage(editor.getModel(), detectedLang);
+            
+            if (langSelector) {
+                langSelector.value = detectedLang;
+            }
+            
+            updateStatus('✅ Accepted! Code applied to editor.', 'success');
+            if (typeof showToast === 'function') {
+                showToast('✅ Accepted! Code applied to editor.', 'success');
+            }
+        }
+    }
+    
+    // Clear generated data
+    window.generatedCodeData = null;
+}
+
+// Reject All Code
+function rejectAllCode() {
+    hideAcceptRejectDialog();
+    window.generatedCodeData = null;
+    updateStatus('❌ Rejected. Code not applied.', 'info');
+    if (typeof showToast === 'function') {
+        showToast('❌ Rejected. Code not applied.', 'info');
+    }
+}
+
+// Set up accept/reject button listeners (run immediately, DOM might already be loaded)
+(function() {
+    function setupAcceptRejectButtons() {
+        const acceptBtn = document.getElementById('accept-all-code-btn');
+        const rejectBtn = document.getElementById('reject-all-code-btn');
+        
+        if (acceptBtn && !acceptBtn.dataset.listenerAdded) {
+            acceptBtn.addEventListener('click', acceptAllCode);
+            acceptBtn.dataset.listenerAdded = 'true';
+        }
+        
+        if (rejectBtn && !rejectBtn.dataset.listenerAdded) {
+            rejectBtn.addEventListener('click', rejectAllCode);
+            rejectBtn.dataset.listenerAdded = 'true';
+        }
+    }
+    
+    // Try immediately
+    setupAcceptRejectButtons();
+    
+    // Also try on DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', setupAcceptRejectButtons);
+    } else {
+        // DOM already loaded
+        setTimeout(setupAcceptRejectButtons, 100);
+    }
+})();
+
+// GitHub Connection Functions
+async function checkGitHubConnection() {
+    try {
+        const userData = await getCurrentUser();
+        if (userData && userData.success && userData.user_profile && userData.user_profile.github_connected) {
+            showGitHubConnected();
+        } else {
+            showGitHubNotConnected();
+        }
+    } catch (e) {
+        console.log('Error checking GitHub connection:', e);
+        showGitHubNotConnected();
+    }
+}
+
+function showGitHubConnected() {
+    const connectedDiv = document.getElementById('github-connected');
+    const notConnectedDiv = document.getElementById('github-not-connected');
+    const statusIndicator = document.getElementById('github-connection-status');
+    
+    if (connectedDiv) connectedDiv.style.display = 'block';
+    if (notConnectedDiv) notConnectedDiv.style.display = 'none';
+    if (statusIndicator) {
+        statusIndicator.style.display = 'inline';
+        statusIndicator.textContent = '🔗';
+        statusIndicator.title = 'GitHub Connected';
+    }
+}
+
+function showGitHubNotConnected() {
+    const connectedDiv = document.getElementById('github-connected');
+    const notConnectedDiv = document.getElementById('github-not-connected');
+    const statusIndicator = document.getElementById('github-connection-status');
+    
+    if (connectedDiv) connectedDiv.style.display = 'none';
+    if (notConnectedDiv) notConnectedDiv.style.display = 'block';
+    if (statusIndicator) statusIndicator.style.display = 'none';
+}
+
+function showGitHubConnectionModal() {
+    const modal = document.getElementById('github-connection-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+}
+
+function hideGitHubConnectionModal() {
+    const modal = document.getElementById('github-connection-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        // Clear inputs
+        document.getElementById('github-token-input').value = '';
+        document.getElementById('github-username-input').value = '';
+    }
+}
+
+async function connectGitHub() {
+    const tokenInput = document.getElementById('github-token-input');
+    const usernameInput = document.getElementById('github-username-input');
+    const submitBtn = document.getElementById('connect-github-submit-btn');
+    
+    const token = tokenInput?.value.trim();
+    const username = usernameInput?.value.trim();
+    
+    if (!token) {
+        if (typeof showToast === 'function') {
+            showToast('Please enter a GitHub token', 'error');
+        }
+        return;
+    }
+    
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Connecting...';
+    }
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/github/connect`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                token: token,
+                username: username
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            hideGitHubConnectionModal();
+            showGitHubConnected();
+            if (typeof showToast === 'function') {
+                showToast(`✅ GitHub connected: ${data.username}`, 'success');
+            }
+        } else {
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to connect GitHub', 'error');
+            }
+        }
+    } catch (error) {
+        if (typeof showToast === 'function') {
+            showToast('Error connecting GitHub: ' + error.message, 'error');
+        }
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '🔗 Connect GitHub';
+        }
+    }
+}
+
+async function disconnectGitHub() {
+    if (!confirm('Are you sure you want to disconnect your GitHub account?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/github/disconnect`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            showGitHubNotConnected();
+            if (typeof showToast === 'function') {
+                showToast('GitHub account disconnected', 'info');
+            }
+        } else {
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to disconnect', 'error');
+            }
+        }
+    } catch (error) {
+        if (typeof showToast === 'function') {
+            showToast('Error disconnecting GitHub: ' + error.message, 'error');
+        }
+    }
+}
+
+async function gitStatus() {
+    if (!editor) {
+        if (typeof showToast === 'function') {
+            showToast('No code in editor', 'warning');
+        }
+        return;
+    }
+    
+    const code = editor.getValue();
+    const filename = getCurrentFileName() || 'untitled.py';
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/git/status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                code: code,
+                filename: filename
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            if (typeof showToast === 'function') {
+                showToast(`Git Status: ${data.message}`, 'info');
+            }
+        } else if (data.requires_connection) {
+            showGitHubConnectionModal();
+            if (typeof showToast === 'function') {
+                showToast('Please connect GitHub account first', 'warning');
+            }
+        } else {
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to get status', 'error');
+            }
+        }
+    } catch (error) {
+        if (typeof showToast === 'function') {
+            showToast('Error getting Git status: ' + error.message, 'error');
+        }
+    }
+}
+
+async function gitCommit() {
+    if (!editor) {
+        if (typeof showToast === 'function') {
+            showToast('No code in editor', 'warning');
+        }
+        return;
+    }
+    
+    const code = editor.getValue();
+    const filename = getCurrentFileName() || 'untitled.py';
+    
+    // Prompt for commit message
+    const message = prompt('Enter commit message:', 'Update code');
+    if (!message) {
+        return;
+    }
+    
+    // Prompt for repository name
+    const repoName = prompt('Repository name (leave empty for "codemind-project"):', 'codemind-project') || 'codemind-project';
+    
+    updateStatus('Committing to GitHub...', 'loading');
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/git/commit`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                code: code,
+                filename: filename,
+                message: message,
+                repo: repoName,
+                branch: 'main'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            updateStatus('✅ Committed successfully!', 'success');
+            if (typeof showToast === 'function') {
+                showToast(`✅ Committed to GitHub! View: ${data.repo_url}`, 'success');
+            }
+        } else if (data.requires_connection) {
+            showGitHubConnectionModal();
+            if (typeof showToast === 'function') {
+                showToast('Please connect GitHub account first', 'warning');
+            }
+        } else {
+            updateStatus('Failed to commit', 'error');
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to commit', 'error');
+            }
+        }
+    } catch (error) {
+        updateStatus('Error committing', 'error');
+        if (typeof showToast === 'function') {
+            showToast('Error committing: ' + error.message, 'error');
+        }
+    }
+}
+
+async function gitPush() {
+    try {
+        const response = await fetch(`${window.API_BASE}/api/git/push`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({})
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            if (typeof showToast === 'function') {
+                showToast(data.message || 'Pushed successfully', 'success');
+            }
+        } else if (data.requires_connection) {
+            showGitHubConnectionModal();
+            if (typeof showToast === 'function') {
+                showToast('Please connect GitHub account first', 'warning');
+            }
+        } else {
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to push', 'error');
+            }
+        }
+    } catch (error) {
+        if (typeof showToast === 'function') {
+            showToast('Error pushing: ' + error.message, 'error');
+        }
+    }
+}
+
+async function gitPull() {
+    if (!editor) {
+        if (typeof showToast === 'function') {
+            showToast('No editor available', 'warning');
+        }
+        return;
+    }
+    
+    const filename = getCurrentFileName() || 'untitled.py';
+    const repoName = prompt('Repository name (leave empty for "codemind-project"):', 'codemind-project') || 'codemind-project';
+    
+    updateStatus('Pulling from GitHub...', 'loading');
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/git/pull`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                filename: filename,
+                repo: repoName,
+                branch: 'main'
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            // Update editor with pulled code
+            editor.setValue(data.code);
+            updateStatus('✅ Pulled successfully!', 'success');
+            if (typeof showToast === 'function') {
+                showToast(data.message || 'Pulled from GitHub', 'success');
+            }
+        } else if (data.requires_connection) {
+            showGitHubConnectionModal();
+            if (typeof showToast === 'function') {
+                showToast('Please connect GitHub account first', 'warning');
+            }
+        } else {
+            updateStatus('Failed to pull', 'error');
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to pull', 'error');
+            }
+        }
+    } catch (error) {
+        updateStatus('Error pulling', 'error');
+        if (typeof showToast === 'function') {
+            showToast('Error pulling: ' + error.message, 'error');
+        }
+    }
+}
+
+function getCurrentFileName() {
+    // Try to get filename from active file tree item
+    const activeFile = document.querySelector('.file-tree-item.active');
+    if (activeFile) {
+        return activeFile.dataset.file || 'untitled.py';
+    }
+    return 'untitled.py';
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('github-connection-modal');
+    if (modal && e.target === modal) {
+        hideGitHubConnectionModal();
+    }
+});

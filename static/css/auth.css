@@ -237,25 +237,212 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+    .auth-page {
+        padding: 20px;
+    }
+    
     .auth-container {
         padding: 30px 20px;
-        margin: 20px;
+        margin: 0;
+        max-width: 100%;
+        border-radius: 12px;
+    }
+    
+    .auth-header h1 {
+        font-size: clamp(1.8rem, 6vw, 2.2rem);
+    }
+    
+    .auth-header p {
+        font-size: clamp(0.95rem, 3vw, 1rem);
+    }
+    
+    .form-group {
+        margin-bottom: 20px;
+    }
+    
+    .form-group input {
+        padding: 12px 14px;
+        font-size: 0.95rem;
+    }
+    
+    .btn {
+        padding: 12px 24px;
+        font-size: 0.95rem;
+        width: 100%;
+    }
+    
+    .auth-footer {
+        font-size: 0.85rem;
     }
     
     .dashboard-header h1 {
-        font-size: 36px;
+        font-size: clamp(1.8rem, 6vw, 2.2rem);
+    }
+    
+    .dashboard-header p {
+        font-size: clamp(0.95rem, 3vw, 1.1rem);
     }
     
     .dashboard-stats {
         grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .stat-card {
+        padding: 20px;
+    }
+    
+    .stat-icon {
+        font-size: 2rem;
+    }
+    
+    .stat-info h3 {
+        font-size: 1.5rem;
     }
     
     .dashboard-actions {
         flex-direction: column;
+        gap: 12px;
     }
     
     .dashboard-actions .btn {
         width: 100%;
+    }
+    
+    .dashboard-actions-grid {
+        grid-template-columns: 1fr;
+        gap: 20px;
+    }
+    
+    .action-card {
+        padding: 30px 24px;
+    }
+    
+    .action-icon {
+        font-size: 3rem;
+    }
+    
+    .action-card h3 {
+        font-size: 1.3rem;
+    }
+    
+    .action-card p {
+        font-size: 0.9rem;
+    }
+    
+    .profile-info {
+        padding: 24px 20px;
+    }
+    
+    .profile-info h2 {
+        font-size: 1.3rem;
+        margin-bottom: 16px;
+    }
+    
+    .profile-detail {
+        padding: 10px 0;
+        font-size: 0.9rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .auth-page {
+        padding: 12px;
+    }
+    
+    .auth-container {
+        padding: 24px 18px;
+    }
+    
+    .auth-header h1 {
+        font-size: 1.6rem;
+        margin-bottom: 6px;
+    }
+    
+    .auth-header p {
+        font-size: 0.9rem;
+    }
+    
+    .form-group label {
+        font-size: 0.9rem;
+        margin-bottom: 6px;
+    }
+    
+    .form-group input {
+        padding: 10px 12px;
+        font-size: 0.9rem;
+    }
+    
+    .btn {
+        padding: 10px 20px;
+        font-size: 0.9rem;
+    }
+    
+    .auth-divider {
+        margin: 20px 0;
+    }
+    
+    .auth-divider span {
+        font-size: 13px;
+        padding: 0 12px;
+    }
+    
+    .dashboard-header h1 {
+        font-size: 1.6rem;
+    }
+    
+    .dashboard-header p {
+        font-size: 0.9rem;
+    }
+    
+    .stat-card {
+        padding: 16px;
+        flex-direction: column;
+        text-align: center;
+        gap: 12px;
+    }
+    
+    .stat-icon {
+        font-size: 1.8rem;
+    }
+    
+    .stat-info h3 {
+        font-size: 1.3rem;
+    }
+    
+    .stat-info p {
+        font-size: 0.85rem;
+    }
+    
+    .action-card {
+        padding: 24px 20px;
+    }
+    
+    .action-icon {
+        font-size: 2.5rem;
+    }
+    
+    .action-card h3 {
+        font-size: 1.2rem;
+    }
+    
+    .action-card p {
+        font-size: 0.85rem;
+    }
+    
+    .profile-info {
+        padding: 20px 16px;
+    }
+    
+    .profile-info h2 {
+        font-size: 1.2rem;
+    }
+    
+    .profile-detail {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 12px 0;
     }
 }
 

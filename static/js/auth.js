@@ -45,10 +45,29 @@ function hideSuccess() {
 }
 
 /**
- * Check if user is authenticated
+ * Check if user is authenticated and token is not expired
  */
 function isAuthenticated() {
-    return !!localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    if (!token) {
+        return false;
+    }
+    
+    // Check if token has expired
+    const expiresAt = localStorage.getItem('token_expires_at');
+    if (expiresAt) {
+        const expirationDate = new Date(expiresAt);
+        const now = new Date();
+        if (now > expirationDate) {
+            // Token expired, clear it
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('token_expires_at');
+            return false;
+        }
+    }
+    
+    return true;
 }
 
 /**

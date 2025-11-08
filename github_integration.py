@@ -88,7 +88,9 @@ def fetch_user_repositories(username: str) -> List[Dict]:
             response = requests.get(url, timeout=30, headers=headers, params=params)
             
             if response.status_code == 404:
-                print(f"User {username} not found")
+                error_data = response.json() if response.content else {}
+                error_msg = error_data.get('message', 'User not found')
+                print(f"User {username} not found: {error_msg}")
                 return []
             elif response.status_code == 403:
                 error_msg = response.json().get('message', '')
@@ -129,7 +131,11 @@ def fetch_user_repositories(username: str) -> List[Dict]:
                 break
         
         if not all_repos:
-            print(f"No repositories found for {username}")
+            print(f"⚠️ No repositories found for {username}")
+            print(f"   This could mean:")
+            print(f"   - User doesn't exist")
+            print(f"   - User has no public repositories")
+            print(f"   - All repositories are private (requires GitHub token)")
             return []
         
         # Include all repos (not filtering forks) and get default branch
@@ -140,11 +146,22 @@ def fetch_user_repositories(username: str) -> List[Dict]:
                 'name': repo['name'],
                 'owner': repo['owner']['login'],
                 'default_branch': repo.get('default_branch', 'main'),
-                'is_fork': repo.get('fork', False)
+                'is_fork': repo.get('fork', False),
+                'private': repo.get('private', False),
+                'size': repo.get('size', 0),  # Size in KB
+                'language': repo.get('language', None)
             })
         
+        # Log repository details
+        print(f"✅ Found {len(repo_info)} repositories for {username}")
+        for repo in repo_info[:5]:
+            fork_status = " (fork)" if repo['is_fork'] else ""
+            private_status = " (private)" if repo['private'] else " (public)"
+            lang_status = f" - {repo['language']}" if repo['language'] else ""
+            print(f"   - {repo['name']}{fork_status}{private_status}{lang_status}")
+        
         # Limit to 5 most recent repos for faster analysis
-        print(f"Found {len(repo_info)} repositories (including forks), processing up to 5 most recent")
+        print(f"Processing up to 5 most recent repositories...")
         return repo_info[:5]
         
     except requests.exceptions.Timeout:
@@ -225,7 +242,7 @@ def fetch_github_repo_files(owner: str, repo: str, default_branch: str = 'main',
     
     def fetch_directory(path: str = '', depth: int = 0):
         """Recursively fetch files from a directory"""
-        if depth > 2:  # Reduced recursion depth for faster analysis (max 2 levels deep)
+        if depth > 4:  # Increased recursion depth to find more files (max 4 levels deep)
             return
         
         try:
@@ -294,7 +311,7 @@ def fetch_github_repo_files(owner: str, repo: str, default_branch: str = 'main',
                                     'language': get_language_from_extension('.' + file_path.split('.')[-1] if '.' in file_path else '')
                                 })
                                 
-                                if len(files) >= 12:  # Reduced limit per repo for faster analysis (12 files max per repo)
+                                if len(files) >= 30:  # Increased limit per repo (30 files max per repo)
                                     return
                                 
                                 # Reduced delay - we have authentication, rate limits are higher
@@ -305,7 +322,7 @@ def fetch_github_repo_files(owner: str, repo: str, default_branch: str = 'main',
                 
                 elif item.get('type') == 'dir':
                     # Recursively fetch from subdirectory
-                    if len(files) < 12:  # Reduced limit for faster analysis
+                    if len(files) < 30:  # Increased limit for faster analysis
                         fetch_directory(item.get('path', ''), depth + 1)
         
         except Exception as e:
@@ -314,10 +331,15 @@ def fetch_github_repo_files(owner: str, repo: str, default_branch: str = 'main',
     try:
         print(f"Fetching code files from {owner}/{repo} (branch: {default_branch})")
         fetch_directory()
-        print(f"Successfully fetched {len(files)} code files from {owner}/{repo}")
+        
+        if len(files) == 0:
+            print(f"⚠️ No code files found in {owner}/{repo}. Repository might be empty or contain only non-code files.")
+        else:
+            print(f"✅ Successfully fetched {len(files)} code files from {owner}/{repo}")
+        
         return files
     except Exception as e:
-        print(f"Error fetching files from {owner}/{repo}: {e}")
+        print(f"❌ Error fetching files from {owner}/{repo}: {e}")
         import traceback
         traceback.print_exc()
         return []
@@ -334,7 +356,7 @@ def fetch_all_user_code_files(username: str, file_extensions: List[str] = None, 
         print(f"Fetching repositories for user: {username}")
         if progress_key:
             with progress_lock:
-                github_progress[progress_key] = {'percent': 5, 'status': 'Fetching repositories...'}
+                github_progress[progress_key] = {'percent': 20, 'status': 'Fetching repositories...'}
         
         repos = fetch_user_repositories(username)
         
@@ -348,7 +370,7 @@ def fetch_all_user_code_files(username: str, file_extensions: List[str] = None, 
         print(f"Processing {len(repos)} repositories...")
         if progress_key:
             with progress_lock:
-                github_progress[progress_key] = {'percent': 10, 'status': f'Found {len(repos)} repositories. Fetching files...'}
+                github_progress[progress_key] = {'percent': 25, 'status': f'Found {len(repos)} repositories. Fetching files...'}
         
         all_files = []
         
@@ -363,8 +385,8 @@ def fetch_all_user_code_files(username: str, file_extensions: List[str] = None, 
                 
                 # Update progress before fetching (more granular updates)
                 if progress_key:
-                    # 10-60% for fetching repos (10% base + 50% for repos)
-                    repo_progress = 10 + int((i / max(len(repos), 1)) * 50)
+                    # 25-60% for fetching repos (25% base + 35% for repos)
+                    repo_progress = 25 + int((i / max(len(repos), 1)) * 35)
                     with progress_lock:
                         github_progress[progress_key] = {
                             'percent': min(repo_progress, 60),
@@ -387,7 +409,7 @@ def fetch_all_user_code_files(username: str, file_extensions: List[str] = None, 
                 # Update progress after each repo (more accurate)
                 if progress_key:
                     # Calculate progress based on completed repos
-                    repo_progress = 10 + int(((i + 1) / len(repos)) * 50)
+                    repo_progress = 25 + int(((i + 1) / len(repos)) * 35)
                     with progress_lock:
                         github_progress[progress_key] = {
                             'percent': min(repo_progress, 60),

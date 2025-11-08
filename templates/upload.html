@@ -4,41 +4,55 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Upload & Analyze - CodeMind</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
+    <link rel="shortcut icon" href="{{ url_for('static', filename='icons/icon-192x192.png') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
 </head>
 <body>
     <script>
-        // Authentication removed - allow access without login
-        // window.addEventListener('DOMContentLoaded', async () => {
-        //     // Authentication check removed
-        // });
-        
-        // Show user info if logged in
+        // Require authentication to access this page
         window.addEventListener('DOMContentLoaded', async () => {
+            // Check if user is authenticated
             const token = localStorage.getItem('token');
-            if (token) {
-                try {
-                    const userData = await getCurrentUser();
-                    if (userData.success && userData.user) {
-                        const userInfo = document.getElementById('user-info');
-                        const logoutBtn = document.getElementById('logout-btn');
-                        if (userInfo) {
-                            userInfo.textContent = `👤 ${userData.user.name || userData.user.email}`;
-                            userInfo.style.display = 'inline';
-                        }
-                        if (logoutBtn) {
-                            logoutBtn.style.display = 'inline-block';
-                            logoutBtn.addEventListener('click', async () => {
-                                await logout();
-                                window.location.href = '{{ url_for("login_page") }}';
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error loading user info:', error);
+            if (!token) {
+                // Not authenticated, redirect to login
+                window.location.href = '{{ url_for("login_page") }}';
+                return;
+            }
+            
+            // Verify token is valid
+            try {
+                const userData = await getCurrentUser();
+                if (!userData.success || !userData.user) {
+                    // Token is invalid, redirect to login
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = '{{ url_for("login_page") }}';
+                    return;
                 }
+                
+                // User is authenticated, show user info
+                const userInfo = document.getElementById('user-info');
+                const logoutBtn = document.getElementById('logout-btn');
+                if (userInfo) {
+                    userInfo.textContent = `👤 ${userData.user.name || userData.user.email}`;
+                    userInfo.style.display = 'inline';
+                }
+                if (logoutBtn) {
+                    logoutBtn.style.display = 'inline-block';
+                    logoutBtn.addEventListener('click', async () => {
+                        await logout();
+                        window.location.href = '{{ url_for("login_page") }}';
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading user info:', error);
+                // Error verifying token, redirect to login
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '{{ url_for("login_page") }}';
             }
         });
     </script>
@@ -49,7 +63,10 @@
                     <span class="logo-icon">🧠</span>
                     <span class="logo-text">CodeMind</span>
                 </div>
-                <div class="nav-links">
+                <button class="mobile-menu-toggle" id="mobile-menu-toggle" aria-label="Toggle menu">
+                    ☰
+                </button>
+                <div class="nav-links" id="nav-links">
                     <a href="{{ url_for('index') }}" class="nav-link">Home</a>
                     <a href="{{ url_for('editor') }}" class="nav-link">Editor</a>
                     <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>
@@ -81,16 +98,100 @@
                 </div>
 
                 <div class="upload-card">
-                    <h2>🔗 Analyze GitHub Repositories</h2>
+                    <h2>🔗 Test Your GitHub Profile Health</h2>
+                    <p class="card-description" style="color: var(--text-secondary); margin-bottom: 20px; font-size: 0.95rem;">
+                        Enter your GitHub username to analyze your profile health. We'll check for good practices (documentation, CI/CD, security) and identify areas for improvement.
+                    </p>
                     <div class="github-input">
                         <input 
                             type="text" 
                             id="github-username" 
-                            placeholder="Enter GitHub username"
+                            placeholder="Enter your GitHub username"
                             class="input-field"
                         >
-                        <button class="btn btn-primary" id="analyze-github-btn">Analyze GitHub</button>
+                        <button class="btn btn-primary" id="analyze-github-btn">Test Profile Health</button>
                     </div>
+                </div>
+            </div>
+
+            <!-- Visual DNA Report -->
+            <div id="dna-report" class="dna-report" style="display: none;">
+                <h2 class="dna-title">🧬 Your Coding DNA</h2>
+                <p class="dna-subtitle">CodeMind has analyzed your unique coding style</p>
+
+                <!-- Visual Progress Bars -->
+                <div class="dna-metrics">
+                    <div class="dna-metric">
+                        <div class="metric-header">
+                            <span class="metric-label">Naming Style</span>
+                            <span class="metric-value" id="naming-value">-</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill snake-case" id="naming-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="dna-metric">
+                        <div class="metric-header">
+                            <span class="metric-label">Documentation Coverage</span>
+                            <span class="metric-value" id="doc-value">-</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill docs" id="doc-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="dna-metric">
+                        <div class="metric-header">
+                            <span class="metric-label">Type Hints Usage</span>
+                            <span class="metric-value" id="types-value">-</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill types" id="types-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Code Quality Score (Big Circle) -->
+                <div class="quality-score-container">
+                    <div class="quality-score">
+                        <svg viewBox="0 0 100 100" class="quality-circle-svg">
+                            <circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="10"/>
+                            <circle cx="50" cy="50" r="45" fill="none" stroke="#6366f1" 
+                                    stroke-width="10" stroke-dasharray="283" 
+                                    stroke-dashoffset="283" id="quality-circle" 
+                                    stroke-linecap="round" transform="rotate(-90 50 50)"/>
+                        </svg>
+                        <div class="score-text">
+                            <span class="score-number" id="quality-score">0</span>
+                            <span class="score-label">/100</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Key Insights -->
+                <div class="insights-grid">
+                    <div class="insight-card positive" id="insight-1">
+                        <span class="icon">✅</span>
+                        <p id="insight-1-text">-</p>
+                    </div>
+                    <div class="insight-card positive" id="insight-2">
+                        <span class="icon">📚</span>
+                        <p id="insight-2-text">-</p>
+                    </div>
+                    <div class="insight-card opportunity" id="insight-3">
+                        <span class="icon">💡</span>
+                        <p id="insight-3-text">-</p>
+                    </div>
+                </div>
+
+                <div class="dna-actions">
+                    <a href="{{ url_for('editor') }}" class="btn btn-primary btn-large" onclick="goToEditor()">
+                        Start Coding with AI →
+                    </a>
+                    <button class="btn btn-secondary btn-large" onclick="showDetailedReport()">
+                        View Detailed Report
+                    </button>
                 </div>
             </div>
 
@@ -145,8 +246,21 @@
         </main>
     </div>
 
+    <!-- Loading Overlay -->
+    <div id="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h3 id="loading-text">Analyzing your code...</h3>
+            <p id="loading-subtitle">Extracting your coding DNA</p>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/mobile-menu.js') }}"></script>
 </body>
 </html>
 
