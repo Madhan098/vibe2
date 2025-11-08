@@ -729,18 +729,44 @@ def analyze_github():
                     error_data = user_response.json() if user_response.content else {}
                     error_msg = error_data.get('message', 'Access denied')
                     print(f"Access denied for user check: {error_msg}")
+                    
+                    # Check if it's a rate limit issue
+                    rate_limit_info = {}
+                    if 'X-RateLimit-Remaining' in user_response.headers:
+                        remaining = user_response.headers.get('X-RateLimit-Remaining', '0')
+                        limit = user_response.headers.get('X-RateLimit-Limit', '60')
+                        reset_time = user_response.headers.get('X-RateLimit-Reset', '0')
+                        rate_limit_info = {
+                            'remaining': int(remaining),
+                            'limit': int(limit),
+                            'reset_time': int(reset_time)
+                        }
+                    
+                    suggestions = []
+                    if 'rate limit' in error_msg.lower() or rate_limit_info.get('remaining', 1) == 0:
+                        suggestions = [
+                            'GitHub API rate limit exceeded (60 requests/hour without token)',
+                            'Add GITHUB_TOKEN to Render environment variables for 5000 requests/hour',
+                            f'Rate limit resets at: {rate_limit_info.get("reset_time", "unknown")}',
+                            'Wait a few minutes and try again',
+                            'See RENDER_ENV_VARIABLES.md for setup instructions'
+                        ]
+                    else:
+                        suggestions = [
+                            'GitHub API access denied',
+                            'Add GITHUB_TOKEN to Render environment variables',
+                            'Wait a few minutes and try again',
+                            'Check your internet connection'
+                        ]
+                    
                     return jsonify({
                         'error': f'Access denied when checking user "{username}".',
                         'details': {
                             'message': error_msg,
-                            'status_code': 403
+                            'status_code': 403,
+                            'rate_limit': rate_limit_info
                         },
-                        'suggestions': [
-                            'GitHub API rate limit might be exceeded',
-                            'Add GITHUB_TOKEN to .env file for higher rate limits',
-                            'Wait a few minutes and try again',
-                            'Check your internet connection'
-                        ]
+                        'suggestions': suggestions
                     }), 403
                 else:
                     error_data = user_response.json() if user_response.content else {}

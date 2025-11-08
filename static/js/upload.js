@@ -370,8 +370,27 @@ if (analyzeGithubBtn) {
                 showToast(`Analysis completed${timeMsg}! Found ${fileCount} files.`, 'success');
             } else {
                 hideLoading();
-                showError(data.error || 'Analysis failed');
-                showToast(data.error || 'Analysis failed', 'error');
+                const errorMsg = data.error || 'Analysis failed';
+                let fullErrorMsg = errorMsg;
+                
+                // Add suggestions if available
+                if (data.suggestions && Array.isArray(data.suggestions)) {
+                    fullErrorMsg += '\n\nSuggestions:\n' + data.suggestions.map((s, i) => `${i + 1}. ${s}`).join('\n');
+                }
+                
+                // Add rate limit info if available
+                if (data.details && data.details.rate_limit) {
+                    const rl = data.details.rate_limit;
+                    if (rl.remaining !== undefined && rl.limit !== undefined) {
+                        fullErrorMsg += `\n\nRate Limit: ${rl.remaining}/${rl.limit} requests remaining`;
+                    }
+                }
+                
+                showError(fullErrorMsg);
+                showToast(errorMsg, 'error');
+                
+                // Log full error for debugging
+                console.error('GitHub analysis error:', data);
             }
         } catch (error) {
             clearInterval(progressInterval);

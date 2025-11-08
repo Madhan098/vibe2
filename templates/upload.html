@@ -69,6 +69,8 @@
                 <div class="nav-links" id="nav-links">
                     <a href="{{ url_for('index') }}" class="nav-link">Home</a>
                     <a href="{{ url_for('editor') }}" class="nav-link">Editor</a>
+                    <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle dark/light theme">
+                    </button>
                     <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>
                     <button id="logout-btn" class="btn btn-small" style="display: none; margin-left: 10px;">Logout</button>
                 </div>
@@ -261,6 +263,7 @@
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <script src="{{ url_for('static', filename='js/upload.js') }}"></script>
     <script src="{{ url_for('static', filename='js/mobile-menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/theme-toggle.js') }}"></script>
 </body>
 </html>
 
