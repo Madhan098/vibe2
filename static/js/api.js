@@ -31,6 +31,16 @@ async function apiRequest(endpoint, options = {}) {
     
     try {
         const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+        
+        // Check if response is JSON
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            // If not JSON, read as text to see what we got
+            const text = await response.text();
+            console.error('Non-JSON response:', text.substring(0, 200));
+            throw new Error('Server returned non-JSON response. Check if endpoint exists.');
+        }
+        
         const data = await response.json();
         
         if (!response.ok) {
