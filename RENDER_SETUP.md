@@ -22,10 +22,10 @@ git push origin main
 - **Name**: `codemind` (or your preferred name)
 - **Region**: Choose closest to you
 - **Branch**: `main`
-- **Root Directory**: Leave empty
+- **Root Directory**: `backend` ⚠️ **IMPORTANT: Set this to `backend`**
 - **Runtime**: `Python 3`
-- **Build Command**: `pip install -r backend/requirements.txt`
-- **Start Command**: `cd backend && python app.py`
+- **Build Command**: `pip install -r requirements.txt`
+- **Start Command**: `python app.py`
 
 **Environment Variables:**
 Click **"Add Environment Variable"**:

@@ -1,0 +1,7 @@
+# Root requirements.txt - points to backend requirements
+# This file exists for Render compatibility
+# Actual requirements are in backend/requirements.txt
+
+# For Render, use: pip install -r backend/requirements.txt
+# Or set rootDir to 'backend' in render.yaml
+
