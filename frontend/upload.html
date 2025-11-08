@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload & Analyze - CodeMind</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar">
+            <div class="nav-content">
+                <div class="logo">
+                    <span class="logo-icon">🧠</span>
+                    <span class="logo-text">CodeMind</span>
+                </div>
+                <div class="nav-links">
+                    <a href="index.html" class="nav-link">Home</a>
+                    <a href="editor.html" class="nav-link">Editor</a>
+                </div>
+            </div>
+        </nav>
+
+        <main class="upload-page">
+            <h1 class="page-title">Upload & Analyze Your Code</h1>
+            <p class="page-subtitle">Let CodeMind learn your unique coding style</p>
+
+            <div class="upload-section">
+                <div class="upload-card">
+                    <h2>📁 Upload Local Files</h2>
+                    <div class="upload-area" id="upload-area">
+                        <div class="upload-icon">📄</div>
+                        <p>Select Python files from your computer</p>
+                        <input type="file" id="file-input" multiple accept=".py" style="display: none;">
+                        <button class="btn btn-primary" id="choose-files-btn">Choose Files</button>
+                    </div>
+                    <div id="file-list" class="file-list" style="display: none;">
+                        <h4>Selected Files:</h4>
+                        <div id="file-items"></div>
+                    </div>
+                    <button class="btn btn-primary btn-full" id="upload-btn" style="display: none; margin-top: 20px;">
+                        📤 Upload & Analyze
+                    </button>
+                </div>
+
+                <div class="upload-card">
+                    <h2>🔗 Analyze GitHub Repositories</h2>
+                    <div class="github-input">
+                        <input 
+                            type="text" 
+                            id="github-username" 
+                            placeholder="Enter GitHub username (e.g., octocat)"
+                            class="input-field"
+                        >
+                        <button class="btn btn-primary" id="analyze-github-btn">Analyze GitHub</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="analysis-report" class="analysis-report" style="display: none;">
+                <h2>📊 Your Coding Style Report</h2>
+                <div class="report-grid">
+                    <div class="report-card">
+                        <div class="report-label">Naming Style</div>
+                        <div class="report-value" id="naming-style">-</div>
+                        <div class="report-detail" id="naming-detail">-</div>
+                    </div>
+                    <div class="report-card">
+                        <div class="report-label">Documentation</div>
+                        <div class="report-value" id="documentation">-</div>
+                        <div class="report-detail">of functions documented</div>
+                    </div>
+                    <div class="report-card">
+                        <div class="report-label">Type Hints</div>
+                        <div class="report-value" id="type-hints">-</div>
+                        <div class="report-detail">usage</div>
+                    </div>
+                    <div class="report-card">
+                        <div class="report-label">Error Handling</div>
+                        <div class="report-value" id="error-handling">-</div>
+                        <div class="report-detail" id="error-detail">-</div>
+                    </div>
+                    <div class="report-card">
+                        <div class="report-label">Code Quality</div>
+                        <div class="report-value" id="code-quality">-</div>
+                        <div class="report-detail">out of 100</div>
+                    </div>
+                </div>
+                <div class="report-actions">
+                    <a href="editor.html" class="btn btn-primary btn-large">Go to Editor</a>
+                </div>
+            </div>
+
+            <div id="loading" class="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p id="loading-text">Analyzing your code...</p>
+            </div>
+
+            <div id="error-message" class="error-message" style="display: none;"></div>
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script src="js/upload.js"></script>
+</body>
+</html>
+

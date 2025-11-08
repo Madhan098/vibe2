@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learn My Style - CodeMind</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CodeMind">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <link rel="manifest" href="/manifest.json">
+    
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <style>
+        .onboarding-container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 40px;
+        }
+        
+        .upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 12px;
+            padding: 60px 40px;
+            text-align: center;
+            background: var(--bg-dark);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-area:hover {
+            border-color: var(--primary-color);
+            background: rgba(99, 102, 241, 0.05);
+        }
+        
+        .upload-area.dragover {
+            border-color: var(--primary-color);
+            background: rgba(99, 102, 241, 0.1);
+        }
+        
+        .upload-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        
+        .file-list {
+            margin-top: 30px;
+        }
+        
+        .file-item {
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .github-section {
+            margin-top: 40px;
+            padding-top: 40px;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-darker);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 20px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            transition: width 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-page">
+        <div class="onboarding-container">
+            <div class="auth-header">
+                <h1>🧬 Learn My Coding Style</h1>
+                <p>Upload your code files or connect GitHub to extract your unique Coding DNA</p>
+            </div>
+
+            <div id="error-message" class="error-message" style="display: none;"></div>
+            <div id="success-message" class="success-message" style="display: none;"></div>
+
+            <!-- File Upload Section -->
+            <div class="upload-section">
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">📁</div>
+                    <h3>Drop Python files here</h3>
+                    <p>or click to browse</p>
+                    <input type="file" id="file-input" multiple accept=".py" style="display: none;">
+                    <button class="btn btn-primary" id="choose-files-btn" style="margin-top: 20px;">
+                        Choose Files
+                    </button>
+                </div>
+
+                <div class="file-list" id="file-list" style="display: none;">
+                    <h4>Selected Files:</h4>
+                    <div id="file-items"></div>
+                </div>
+
+                <div id="upload-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <p id="progress-text" style="text-align: center; margin-top: 10px;">Analyzing your code...</p>
+                </div>
+            </div>
+
+            <!-- GitHub Section -->
+            <div class="github-section">
+                <h3>Or connect GitHub</h3>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Analyze all your repositories by GitHub username, or a specific repository URL
+                </p>
+                
+                <!-- GitHub Username Option -->
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">GitHub Username (Analyze all repos)</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input 
+                            type="text" 
+                            id="github-username" 
+                            placeholder="username"
+                            style="flex: 1; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);"
+                        >
+                        <button class="btn btn-primary" id="analyze-username-btn">
+                            🔍 Analyze All Repos
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Or Repository URL -->
+                <div style="text-align: center; margin: 20px 0; color: var(--text-secondary);">OR</div>
+                
+                <!-- GitHub Repository URL Option -->
+                <div>
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Specific Repository URL</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input 
+                            type="text" 
+                            id="github-url" 
+                            placeholder="https://github.com/username/repository"
+                            style="flex: 1; padding: 12px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-primary);"
+                        >
+                        <button class="btn btn-secondary" id="analyze-github-btn">
+                            🔍 Analyze Repository
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top: 40px; text-align: center;">
+                <button class="btn btn-secondary" onclick="window.location.href='dashboard.html'">
+                    Skip for Now
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/pwa.js"></script>
+    <script>
+        // Check authentication
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (!isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            // Verify token is still valid
+            const userData = await getCurrentUser();
+            if (!userData.success || !userData.user) {
+                // Token invalid, redirect to login
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = 'login.html';
+            }
+        });
+
+        const uploadArea = document.getElementById('upload-area');
+        const fileInput = document.getElementById('file-input');
+        const fileList = document.getElementById('file-list');
+        const fileItems = document.getElementById('file-items');
+        const chooseFilesBtn = document.getElementById('choose-files-btn');
+        let selectedFiles = [];
+
+        // Choose Files button - open file picker
+        if (chooseFilesBtn) {
+            chooseFilesBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                fileInput.click();
+            });
+        }
+
+        // Also allow clicking on upload area to choose files
+        uploadArea.addEventListener('click', (e) => {
+            // Only trigger if not clicking on the button
+            if (e.target !== chooseFilesBtn && !chooseFilesBtn.contains(e.target)) {
+                fileInput.click();
+            }
+        });
+
+        // Drag and drop
+        uploadArea.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.add('dragover');
+        });
+
+        uploadArea.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('dragover');
+        });
+
+        uploadArea.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove('dragover');
+            handleFiles(e.dataTransfer.files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFiles(e.target.files);
+            }
+        });
+
+        function handleFiles(files) {
+            selectedFiles = Array.from(files).filter(f => f.name.endsWith('.py'));
+            displayFiles();
+        }
+
+        function displayFiles() {
+            const uploadBtn = document.getElementById('upload-analyze-btn');
+            
+            if (selectedFiles.length === 0) {
+                fileList.style.display = 'none';
+                if (uploadBtn) uploadBtn.style.display = 'none';
+                return;
+            }
+
+            fileList.style.display = 'block';
+            if (uploadBtn) uploadBtn.style.display = 'block';
+            
+            fileItems.innerHTML = selectedFiles.map((file, index) => `
+                <div class="file-item">
+                    <span>📄 ${file.name} (${(file.size / 1024).toFixed(1)} KB)</span>
+                    <button onclick="removeFile(${index})" style="background: var(--error-color); color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer;">Remove</button>
+                </div>
+            `).join('');
+        }
+        
+        // Make removeFile available globally
+        window.removeFile = function(index) {
+            selectedFiles.splice(index, 1);
+            displayFiles();
+        };
+
+        // Upload button - create and add to page
+        let uploadBtn = document.getElementById('upload-analyze-btn');
+        if (!uploadBtn) {
+            uploadBtn = document.createElement('button');
+            uploadBtn.id = 'upload-analyze-btn';
+            uploadBtn.className = 'btn btn-primary btn-full';
+            uploadBtn.textContent = '📤 Upload and Analyze';
+            uploadBtn.style.marginTop = '20px';
+            uploadBtn.style.display = 'none'; // Hidden until files are selected
+            uploadArea.appendChild(uploadBtn);
+        }
+        
+        uploadBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadFiles();
+        });
+
+        async function uploadFiles() {
+            if (selectedFiles.length === 0) {
+                showError('Please select at least one Python file');
+                return;
+            }
+
+            hideError();
+            hideSuccess();
+
+            const formData = new FormData();
+            selectedFiles.forEach(file => {
+                formData.append('files', file);
+            });
+
+            document.getElementById('upload-progress').style.display = 'block';
+            document.getElementById('progress-fill').style.width = '20%';
+            document.getElementById('progress-text').textContent = 'Uploading files...';
+
+            try {
+                const token = localStorage.getItem('token');
+                
+                // Update progress
+                document.getElementById('progress-fill').style.width = '50%';
+                document.getElementById('progress-text').textContent = 'Analyzing your code...';
+                
+                const response = await fetch('/api/upload/code', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('progress-fill').style.width = '100%';
+                    document.getElementById('progress-text').textContent = 'Analysis complete!';
+                    
+                    setTimeout(() => {
+                        window.location.href = 'dna-profile.html';
+                    }, 1500);
+                } else {
+                    showError(data.error || 'Upload failed');
+                    document.getElementById('upload-progress').style.display = 'none';
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+                document.getElementById('upload-progress').style.display = 'none';
+            }
+        }
+
+        // GitHub username analysis
+        document.getElementById('analyze-username-btn').addEventListener('click', async () => {
+            const username = document.getElementById('github-username').value.trim();
+            
+            if (!username) {
+                showError('Please enter a GitHub username');
+                return;
+            }
+
+            hideError();
+            hideSuccess();
+
+            document.getElementById('upload-progress').style.display = 'block';
+            document.getElementById('progress-fill').style.width = '10%';
+            document.getElementById('progress-text').textContent = 'Fetching repositories...';
+
+            try {
+                // Update progress
+                setTimeout(() => {
+                    document.getElementById('progress-fill').style.width = '30%';
+                    document.getElementById('progress-text').textContent = 'Analyzing repositories...';
+                }, 500);
+                
+                setTimeout(() => {
+                    document.getElementById('progress-fill').style.width = '60%';
+                    document.getElementById('progress-text').textContent = 'Extracting coding patterns...';
+                }, 2000);
+                
+                const result = await analyzeGitHubUsername(username);
+                
+                if (result.success) {
+                    document.getElementById('progress-fill').style.width = '100%';
+                    document.getElementById('progress-text').textContent = `Analysis complete! Analyzed ${result.files_analyzed || 0} files from ${result.repos_analyzed || 0} repositories.`;
+                    
+                    setTimeout(() => {
+                        window.location.href = 'dna-profile.html';
+                    }, 2000);
+                } else {
+                    showError(result.error || 'Analysis failed');
+                    document.getElementById('upload-progress').style.display = 'none';
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+                document.getElementById('upload-progress').style.display = 'none';
+            }
+        });
+
+        // GitHub repository analysis
+        document.getElementById('analyze-github-btn').addEventListener('click', async () => {
+            const repoUrl = document.getElementById('github-url').value.trim();
+            
+            if (!repoUrl) {
+                showError('Please enter a GitHub repository URL');
+                return;
+            }
+
+            hideError();
+            hideSuccess();
+
+            document.getElementById('upload-progress').style.display = 'block';
+            document.getElementById('progress-fill').style.width = '30%';
+            document.getElementById('progress-text').textContent = 'Fetching repository...';
+
+            try {
+                const result = await analyzeGitHubRepo(repoUrl);
+                
+                if (result.success) {
+                    document.getElementById('progress-fill').style.width = '100%';
+                    document.getElementById('progress-text').textContent = 'Analysis complete!';
+                    
+                    setTimeout(() => {
+                        window.location.href = 'dna-profile.html';
+                    }, 1500);
+                } else {
+                    showError(result.error || 'Analysis failed');
+                    document.getElementById('upload-progress').style.display = 'none';
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+                document.getElementById('upload-progress').style.display = 'none';
+            }
+        });
+
+        async function analyzeGitHubUsername(username) {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch('/api/github/analyze-username', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ username: username })
+                });
+
+                const data = await response.json();
+                return { success: response.ok, ...data };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
+        async function analyzeGitHubRepo(repoUrl) {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch('/api/github/analyze', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ repo_url: repoUrl })
+                });
+
+                const data = await response.json();
+                return { success: response.ok, ...data };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - CodeMind</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CodeMind">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <link rel="manifest" href="/manifest.json">
+    
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+</head>
+<body>
+    <div class="dashboard-page">
+        <nav class="dashboard-nav">
+            <div class="nav-container">
+                <div class="logo" style="cursor: pointer;" onclick="window.location.href='dashboard.html'">
+                    <span class="logo-icon">🧠</span>
+                    <span class="logo-text">CodeMind</span>
+                </div>
+                <div class="nav-links">
+                    <a href="dashboard.html" class="nav-link" style="margin-right: 20px;">Dashboard</a>
+                    <span id="user-name" class="user-name">Loading...</span>
+                    <button id="logout-btn" class="btn btn-secondary">Logout</button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="dashboard-container">
+            <div class="dashboard-header">
+                <h1>Welcome back, <span id="welcome-name">Developer</span>!</h1>
+                <p>Ready to code smarter?</p>
+            </div>
+
+            <div class="dashboard-stats">
+                <div class="stat-card">
+                    <div class="stat-icon">📊</div>
+                    <div class="stat-info">
+                        <h3 id="total-interactions">0</h3>
+                        <p>Total Interactions</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-info">
+                        <h3 id="acceptance-rate">0%</h3>
+                        <p>Acceptance Rate</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🎯</div>
+                    <div class="stat-info">
+                        <h3 id="skill-level">Beginner</h3>
+                        <p>Skill Level</p>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🧠</div>
+                    <div class="stat-info">
+                        <h3 id="style-confidence">0%</h3>
+                        <p>Style Confidence</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="dashboard-actions" id="dashboard-actions">
+                <a href="editor.html" class="btn btn-large btn-primary" id="start-coding-btn">
+                    🚀 Start Coding
+                </a>
+                <a href="dna-profile.html" class="btn btn-large btn-secondary" id="dna-profile-btn" style="display: none;">
+                    🧬 View DNA Profile
+                </a>
+                <a href="onboarding.html" class="btn btn-large btn-secondary" id="extract-dna-btn" style="display: none;">
+                    🧬 Extract DNA
+                </a>
+                <button id="view-profile-btn" class="btn btn-large btn-secondary">
+                    View Profile
+                </button>
+            </div>
+
+            <div id="profile-info" class="profile-info" style="display: none;">
+                <h2>Your Profile</h2>
+                <div id="profile-details"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/pwa.js"></script>
+    <script>
+        // Check authentication on load
+        window.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            if (!token) {
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                const userData = await getCurrentUser();
+                if (userData.success && userData.user) {
+                    // User is authenticated, continue loading dashboard
+                    const user = userData.user;
+                    const profile = userData.profile;
+
+                    // Check if DNA is extracted
+                    if (!profile || !profile.dna_extracted) {
+                        // Show onboarding prompt above actions
+                        const dashboardContainer = document.querySelector('.dashboard-container');
+                        const dashboardActions = document.querySelector('.dashboard-actions');
+                        
+                        // Check if prompt already exists
+                        let onboardingPrompt = document.getElementById('onboarding-prompt');
+                        if (!onboardingPrompt && dashboardContainer) {
+                            onboardingPrompt = document.createElement('div');
+                            onboardingPrompt.id = 'onboarding-prompt';
+                            onboardingPrompt.style.cssText = 'text-align: center; padding: 40px; background: var(--bg-dark); border: 1px solid var(--border-color); border-radius: 12px; margin-bottom: 40px;';
+                            onboardingPrompt.innerHTML = `
+                                <h2>🧬 Extract Your Coding DNA</h2>
+                                <p style="color: var(--text-secondary); margin: 20px 0;">
+                                    Upload your code files or connect GitHub to learn your unique coding style
+                                </p>
+                                <a href="onboarding.html" class="btn btn-large btn-primary">
+                                    Get Started
+                                </a>
+                            `;
+                            
+                            // Insert before dashboard-actions
+                            if (dashboardActions) {
+                                dashboardContainer.insertBefore(onboardingPrompt, dashboardActions);
+                            } else {
+                                dashboardContainer.appendChild(onboardingPrompt);
+                            }
+                        }
+                    } else {
+                        // Hide onboarding prompt if DNA is extracted
+                        const onboardingPrompt = document.getElementById('onboarding-prompt');
+                        if (onboardingPrompt) {
+                            onboardingPrompt.remove();
+                        }
+                    }
+
+                    // Update UI
+                    document.getElementById('welcome-name').textContent = user.name;
+                    document.getElementById('user-name').textContent = user.name;
+
+                    if (profile) {
+                        document.getElementById('total-interactions').textContent = profile.total_interactions || 0;
+                        const acceptRate = profile.total_interactions > 0 
+                            ? Math.round((profile.suggestions_accepted / profile.total_interactions) * 100)
+                            : 0;
+                        document.getElementById('acceptance-rate').textContent = acceptRate + '%';
+                        document.getElementById('skill-level').textContent = profile.skill_level || 'Beginner';
+                        document.getElementById('style-confidence').textContent = 
+                            Math.round((profile.style_confidence || 0) * 100) + '%';
+                        
+                        // Show DNA profile button if DNA is extracted
+                        const dnaProfileBtn = document.getElementById('dna-profile-btn');
+                        const extractDnaBtn = document.getElementById('extract-dna-btn');
+                        
+                        if (profile.dna_extracted) {
+                            if (dnaProfileBtn) dnaProfileBtn.style.display = 'inline-block';
+                            if (extractDnaBtn) extractDnaBtn.style.display = 'none';
+                        } else {
+                            if (dnaProfileBtn) dnaProfileBtn.style.display = 'none';
+                            if (extractDnaBtn) extractDnaBtn.style.display = 'inline-block';
+                        }
+                        
+                        // Re-setup button listeners after showing/hiding buttons
+                        setTimeout(() => {
+                            setupButtonListeners();
+                        }, 300);
+                        
+                        // Show evolution if available
+                        if (profile.current_quality_score && profile.initial_quality_score) {
+                            const improvement = profile.current_quality_score - profile.initial_quality_score;
+                            if (improvement > 0) {
+                                const evolutionCard = document.createElement('div');
+                                evolutionCard.className = 'stat-card';
+                                evolutionCard.innerHTML = `
+                                    <div class="stat-icon">📈</div>
+                                    <div class="stat-info">
+                                        <h3>+${Math.round(improvement)}</h3>
+                                        <p>Quality Improvement</p>
+                                    </div>
+                                `;
+                                document.querySelector('.dashboard-stats').appendChild(evolutionCard);
+                            }
+                        }
+                    }
+                } else {
+                    // Invalid token, clear and redirect
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = 'login.html';
+                }
+            } catch (error) {
+                console.error('Error loading user:', error);
+                // Clear invalid token
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = 'login.html';
+            }
+        });
+
+        // Setup button event listeners - use event delegation for reliability
+        function setupButtonListeners() {
+            // Remove old listeners by cloning (prevents duplicates)
+            const logoutBtn = document.getElementById('logout-btn');
+            if (logoutBtn) {
+                // Remove all existing listeners
+                const newLogoutBtn = logoutBtn.cloneNode(true);
+                logoutBtn.parentNode.replaceChild(newLogoutBtn, logoutBtn);
+                
+                newLogoutBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    try {
+                        await logout();
+                        window.location.href = 'index.html';
+                    } catch (error) {
+                        console.error('Logout error:', error);
+                        // Clear local storage anyway
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('user');
+                        window.location.href = 'index.html';
+                    }
+                });
+            }
+
+            // View profile button
+            const viewProfileBtn = document.getElementById('view-profile-btn');
+            if (viewProfileBtn) {
+                // Remove old listeners
+                const newViewProfileBtn = viewProfileBtn.cloneNode(true);
+                viewProfileBtn.parentNode.replaceChild(newViewProfileBtn, viewProfileBtn);
+                
+                newViewProfileBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    const profileInfo = document.getElementById('profile-info');
+                    const profileDetails = document.getElementById('profile-details');
+                    
+                    if (!profileInfo || !profileDetails) {
+                        alert('Profile elements not found');
+                        return;
+                    }
+                    
+                    const isHidden = profileInfo.style.display === 'none' || profileInfo.style.display === '';
+                    
+                    if (isHidden) {
+                        try {
+                            const userData = await getCurrentUser();
+                            if (userData.profile) {
+                                const profile = userData.profile;
+                                profileDetails.innerHTML = `
+                                    <div class="profile-detail">
+                                        <strong>Skill Level:</strong> ${profile.skill_level || 'Beginner'}
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Naming Convention:</strong> ${profile.naming_convention || 'snake_case'}
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Total Interactions:</strong> ${profile.total_interactions || 0}
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Suggestions Accepted:</strong> ${profile.suggestions_accepted || 0}
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Suggestions Rejected:</strong> ${profile.suggestions_rejected || 0}
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Style Confidence:</strong> ${Math.round((profile.style_confidence || 0) * 100)}%
+                                    </div>
+                                    ${profile.dna_extracted ? `
+                                    <div class="profile-detail">
+                                        <strong>DNA Extracted:</strong> ✅ Yes
+                                    </div>
+                                    <div class="profile-detail">
+                                        <strong>Code Quality Score:</strong> ${profile.current_quality_score || profile.initial_quality_score || 'N/A'}
+                                    </div>
+                                    ` : `
+                                    <div class="profile-detail">
+                                        <strong>DNA Extracted:</strong> ❌ No - <a href="onboarding.html" style="color: var(--primary-color);">Extract Now</a>
+                                    </div>
+                                    `}
+                                `;
+                                profileInfo.style.display = 'block';
+                                newViewProfileBtn.textContent = 'Hide Profile';
+                            } else {
+                                alert('Profile data not available');
+                            }
+                        } catch (error) {
+                            console.error('Error loading profile:', error);
+                            alert('Error loading profile. Please try again.');
+                        }
+                    } else {
+                        profileInfo.style.display = 'none';
+                        newViewProfileBtn.textContent = 'View Profile';
+                    }
+                });
+            }
+        }
+
+        // Setup listeners - call immediately and also on DOMContentLoaded
+        // This ensures buttons work even if they're added dynamically
+        setupButtonListeners();
+        
+        // Also setup after DOM is fully loaded
+        window.addEventListener('DOMContentLoaded', () => {
+            setupButtonListeners();
+        });
+        
+        // Setup listeners after user data loads (buttons might be shown/hidden)
+        setTimeout(() => {
+            setupButtonListeners();
+        }, 1000);
+    </script>
+</body>
+</html>
+

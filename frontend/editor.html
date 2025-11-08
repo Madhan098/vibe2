@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Editor - CodeMind</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.44.0/min/vs/loader.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <nav class="navbar">
+            <div class="nav-content">
+                <div class="logo">
+                    <span class="logo-icon">🧠</span>
+                    <span class="logo-text">CodeMind</span>
+                </div>
+                <div class="nav-links">
+                    <a href="index.html" class="nav-link">Home</a>
+                    <a href="upload.html" class="nav-link">Upload</a>
+                </div>
+            </div>
+        </nav>
+
+        <main class="editor-page">
+            <div class="editor-container">
+                <div class="editor-panel">
+                    <div class="panel-header">
+                        <h3>Code Editor</h3>
+                        <button class="btn btn-small" id="clear-btn">Clear</button>
+                    </div>
+                    <div id="monaco-editor" class="monaco-container"></div>
+                </div>
+
+                <div class="ai-panel">
+                    <div class="panel-header">
+                        <h3>AI Assistant</h3>
+                        <div class="status-indicator" id="status-indicator">
+                            <span class="status-dot"></span>
+                            <span id="status-text">Ready</span>
+                        </div>
+                    </div>
+                    <div class="ai-content">
+                        <div id="no-suggestion" class="ai-placeholder">
+                            <div class="placeholder-icon">💡</div>
+                            <p>Start typing code...</p>
+                            <p class="placeholder-hint">AI will analyze your code and suggest improvements matching your style</p>
+                        </div>
+                        <div id="suggestion" class="ai-suggestion" style="display: none;">
+                            <div class="suggestion-header">
+                                <h4>Suggested Improvement</h4>
+                            </div>
+                            <div class="suggestion-explanation" id="suggestion-explanation"></div>
+                            <div class="suggestion-code">
+                                <pre><code id="suggestion-code"></code></pre>
+                            </div>
+                            <div class="suggestion-actions">
+                                <button class="btn btn-primary" id="accept-btn">✅ Accept</button>
+                                <button class="btn btn-secondary" id="reject-btn">❌ Reject</button>
+                            </div>
+                        </div>
+                        <div id="loading-suggestion" class="ai-loading" style="display: none;">
+                            <div class="spinner-small"></div>
+                            <p>Analyzing your code...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/app.js"></script>
+    <script src="js/editor.js"></script>
+</body>
+</html>

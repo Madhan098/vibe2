@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Coding DNA - CodeMind</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="theme-color" content="#6366f1">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CodeMind">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <link rel="manifest" href="/manifest.json">
+    
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/auth.css">
+    <style>
+        .dna-container {
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 40px;
+        }
+        
+        .dna-card {
+            background: var(--bg-dark);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .metric-bar {
+            background: var(--bg-darker);
+            border-radius: 8px;
+            height: 24px;
+            margin: 12px 0;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .metric-fill {
+            height: 100%;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 8px;
+            transition: width 0.5s ease;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 8px;
+            color: white;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .insight-card {
+            background: rgba(99, 102, 241, 0.1);
+            border-left: 3px solid var(--primary-color);
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .quality-score {
+            font-size: 48px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-page">
+        <nav class="dashboard-nav">
+            <div class="nav-container">
+                <div class="logo">
+                    <span class="logo-icon">🧠</span>
+                    <span class="logo-text">CodeMind</span>
+                </div>
+                <div class="nav-links">
+                    <a href="dashboard.html" class="nav-link">Dashboard</a>
+                    <a href="editor.html" class="btn btn-primary">Start Coding</a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="dna-container">
+            <div class="auth-header">
+                <h1>🧬 Your Coding DNA Profile</h1>
+                <p>Your unique coding style extracted and analyzed</p>
+            </div>
+
+            <div id="loading" style="text-align: center; padding: 60px;">
+                <div class="loading-spinner"></div>
+                <p style="margin-top: 20px;">Loading your DNA profile...</p>
+            </div>
+
+            <div id="dna-content" style="display: none;">
+                <!-- Quality Score -->
+                <div class="dna-card">
+                    <h2>Code Quality Score</h2>
+                    <div class="quality-score" id="quality-score">0</div>
+                    <p style="color: var(--text-secondary);">Out of 100</p>
+                </div>
+
+                <!-- Naming Style -->
+                <div class="dna-card">
+                    <h3>Naming Style</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        <strong id="naming-style">snake_case</strong> 
+                        (<span id="naming-confidence">0</span>% confidence)
+                    </p>
+                    <div class="metric-bar">
+                        <div class="metric-fill" id="naming-bar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Documentation -->
+                <div class="dna-card">
+                    <h3>Documentation Style</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        <strong id="doc-style">Simple</strong> style
+                        (<span id="doc-score">0</span>% of functions documented)
+                    </p>
+                    <div class="metric-bar">
+                        <div class="metric-fill" id="doc-bar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Type Hints -->
+                <div class="dna-card">
+                    <h3>Type Hints Usage</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        <span id="type-hints-usage">0</span>% of functions use type hints
+                    </p>
+                    <div class="metric-bar">
+                        <div class="metric-fill" id="type-hints-bar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Error Handling -->
+                <div class="dna-card">
+                    <h3>Error Handling</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        <strong id="error-style">Basic</strong> error handling
+                        (<span id="error-score">0</span>% coverage)
+                    </p>
+                    <div class="metric-bar">
+                        <div class="metric-fill" id="error-bar" style="width: 0%;">0%</div>
+                    </div>
+                </div>
+
+                <!-- Insights -->
+                <div class="dna-card">
+                    <h3>🎯 Key Insights</h3>
+                    <div id="insights-list"></div>
+                </div>
+
+                <!-- Stats -->
+                <div class="dna-card">
+                    <h3>Statistics</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-top: 20px;">
+                        <div>
+                            <strong style="font-size: 24px;" id="total-functions">0</strong>
+                            <p style="color: var(--text-secondary); margin: 0;">Functions Analyzed</p>
+                        </div>
+                        <div>
+                            <strong style="font-size: 24px;" id="total-classes">0</strong>
+                            <p style="color: var(--text-secondary); margin: 0;">Classes Analyzed</p>
+                        </div>
+                        <div>
+                            <strong style="font-size: 24px;" id="total-files">0</strong>
+                            <p style="color: var(--text-secondary); margin: 0;">Files Analyzed</p>
+                        </div>
+                        <div>
+                            <strong style="font-size: 24px;" id="skill-level">Beginner</strong>
+                            <p style="color: var(--text-secondary); margin: 0;">Skill Level</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="text-align: center; margin-top: 40px;">
+                    <a href="editor.html" class="btn btn-large btn-primary">
+                        🚀 Start Coding with Your Style
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/pwa.js"></script>
+    <script>
+        // Check authentication
+        window.addEventListener('DOMContentLoaded', async () => {
+            if (!isAuthenticated()) {
+                window.location.href = 'login.html';
+                return;
+            }
+            
+            // Verify token is still valid
+            try {
+                const userData = await getCurrentUser();
+                if (!userData.success || !userData.user) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    window.location.href = 'login.html';
+                    return;
+                }
+                
+                // Load DNA profile
+                loadDNAProfile();
+            } catch (error) {
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = 'login.html';
+            }
+        });
+
+        async function loadDNAProfile() {
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch('/api/dna/profile', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const data = await response.json();
+
+                if (!data.dna_extracted) {
+                    window.location.href = 'onboarding.html';
+                    return;
+                }
+
+                displayDNAProfile(data.dna_profile);
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('dna-content').style.display = 'block';
+            } catch (error) {
+                console.error('Error loading DNA profile:', error);
+                document.getElementById('loading').innerHTML = '<p style="color: var(--error-color);">Error loading profile. Please try again.</p>';
+            }
+        }
+
+        function displayDNAProfile(dna) {
+            // Quality Score
+            document.getElementById('quality-score').textContent = Math.round(dna.code_quality_score || 0);
+            
+            // Naming Style
+            document.getElementById('naming-style').textContent = dna.naming_style || 'snake_case';
+            document.getElementById('naming-confidence').textContent = dna.naming_confidence || 0;
+            document.getElementById('naming-bar').style.width = (dna.naming_confidence || 0) + '%';
+            document.getElementById('naming-bar').textContent = Math.round(dna.naming_confidence || 0) + '%';
+            
+            // Documentation
+            document.getElementById('doc-style').textContent = (dna.docstring_style || 'simple').charAt(0).toUpperCase() + (dna.docstring_style || 'simple').slice(1);
+            document.getElementById('doc-score').textContent = Math.round(dna.documentation_score || 0);
+            document.getElementById('doc-bar').style.width = (dna.documentation_score || 0) + '%';
+            document.getElementById('doc-bar').textContent = Math.round(dna.documentation_score || 0) + '%';
+            
+            // Type Hints
+            document.getElementById('type-hints-usage').textContent = Math.round(dna.type_hints_usage || 0);
+            document.getElementById('type-hints-bar').style.width = (dna.type_hints_usage || 0) + '%';
+            document.getElementById('type-hints-bar').textContent = Math.round(dna.type_hints_usage || 0) + '%';
+            
+            // Error Handling
+            document.getElementById('error-style').textContent = (dna.error_handling_style || 'basic').charAt(0).toUpperCase() + (dna.error_handling_style || 'basic').slice(1);
+            document.getElementById('error-score').textContent = Math.round(dna.error_handling_score || 0);
+            document.getElementById('error-bar').style.width = (dna.error_handling_score || 0) + '%';
+            document.getElementById('error-bar').textContent = Math.round(dna.error_handling_score || 0) + '%';
+            
+            // Stats
+            document.getElementById('total-functions').textContent = dna.total_functions || 0;
+            document.getElementById('total-classes').textContent = dna.total_classes || 0;
+            document.getElementById('total-files').textContent = dna.total_files_analyzed || 0;
+            document.getElementById('skill-level').textContent = (dna.skill_level || 'beginner').charAt(0).toUpperCase() + (dna.skill_level || 'beginner').slice(1);
+            
+            // Insights
+            const insightsList = document.getElementById('insights-list');
+            if (dna.insights && dna.insights.length > 0) {
+                insightsList.innerHTML = dna.insights.map(insight => `
+                    <div class="insight-card">
+                        <p style="margin: 0;">${insight}</p>
+                    </div>
+                `).join('');
+            } else {
+                insightsList.innerHTML = '<p style="color: var(--text-secondary);">No insights available yet.</p>';
+            }
+        }
+
+        // Profile is loaded in the authentication check above
+    </script>
+</body>
+</html>
+
