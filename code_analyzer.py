@@ -6,6 +6,11 @@ import re
 from typing import Dict, List, Tuple
 
 
+def analyze_code(files: List[Dict[str, str]]) -> Dict:
+    """Alias for analyze_code_files for backward compatibility"""
+    return analyze_code_files(files)
+
+
 def analyze_code_files(files: List[Dict[str, str]]) -> Dict:
     """
     Analyze multiple code files and extract aggregated patterns

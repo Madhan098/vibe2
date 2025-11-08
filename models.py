@@ -131,6 +131,75 @@ def update_profile(user_id, updates):
         return profile
     return None
 
+def save_style_profile(user_id, style_profile_data):
+    """Save or update user's style profile (DNA)"""
+    profile = profiles_db.get(user_id)
+    if not profile:
+        # Create profile if it doesn't exist
+        profile = UserProfile(user_id)
+        profiles_db[user_id] = profile
+    
+    # Store the complete style profile
+    profile.style_dna = style_profile_data
+    profile.dna_extracted = True
+    
+    # Extract key patterns for quick access
+    profile.naming_convention = style_profile_data.get('naming_style', 'snake_case')
+    profile.style_confidence = style_profile_data.get('naming_confidence', 0.0) / 100.0
+    
+    # Update patterns
+    profile.patterns = {
+        'naming_style': style_profile_data.get('naming_style', 'snake_case'),
+        'uses_docstrings': style_profile_data.get('documentation_percentage', 0) > 50,
+        'uses_type_hints': style_profile_data.get('type_hints_percentage', 0) > 50,
+        'error_handling': style_profile_data.get('error_handling_style', 'basic')
+    }
+    
+    # Store quality scores
+    if profile.initial_quality_score is None:
+        profile.initial_quality_score = style_profile_data.get('code_quality_score', 50)
+    profile.current_quality_score = style_profile_data.get('code_quality_score', 50)
+    
+    # Update skill level based on quality score
+    quality = style_profile_data.get('code_quality_score', 50)
+    if quality >= 80:
+        profile.skill_level = 'advanced'
+    elif quality >= 60:
+        profile.skill_level = 'intermediate'
+    else:
+        profile.skill_level = 'beginner'
+    
+    return profile
+
+def get_style_profile(user_id):
+    """Get user's stored style profile (DNA)"""
+    profile = profiles_db.get(user_id)
+    if profile and profile.style_dna:
+        return profile.style_dna
+    return None
+
+def update_style_profile_from_feedback(user_id, feedback_data):
+    """Update style profile based on user feedback (accept/reject)"""
+    profile = profiles_db.get(user_id)
+    if not profile or not profile.style_dna:
+        return None
+    
+    # Update interaction counts
+    profile.total_interactions += 1
+    if feedback_data.get('action') == 'accept':
+        profile.suggestions_accepted += 1
+    else:
+        profile.suggestions_rejected += 1
+    
+    # Update style DNA based on feedback (learning)
+    # This allows the profile to evolve based on user preferences
+    if feedback_data.get('action') == 'accept' and feedback_data.get('suggestion'):
+        # User accepted - strengthen patterns in the suggestion
+        # This is a simplified learning mechanism
+        pass  # Could add more sophisticated learning here
+    
+    return profile
+
 def log_interaction(user_id, interaction_data):
     """Log code interaction"""
     interaction = {

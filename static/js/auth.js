@@ -56,7 +56,11 @@ function isAuthenticated() {
  */
 function requireAuth() {
     if (!isAuthenticated()) {
-        window.location.href = 'login.html';
+        // Try to use Flask route, fallback to login.html
+        const loginUrl = typeof window !== 'undefined' && window.location.pathname.includes('/') 
+            ? '/login.html' 
+            : 'login.html';
+        window.location.href = loginUrl;
         return false;
     }
     return true;
@@ -96,7 +100,7 @@ async function checkAutoLogin() {
 async function autoRedirectIfLoggedIn() {
     const isLoggedIn = await checkAutoLogin();
     if (isLoggedIn) {
-        window.location.href = 'dashboard.html';
+        window.location.href = 'index.html';
     }
 }
 

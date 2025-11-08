@@ -3,11 +3,436 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CodeMind - AI That Learns Your Coding Style</title>
+    <title>CodeMind - AI That Learns YOUR Coding Style</title>
+    <meta name="description" content="CodeMind analyzes your code patterns and provides AI suggestions that match YOUR unique coding style. Support for Python, JavaScript, Java, and 20+ languages.">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Landing Page Specific Styles */
+        .landing-hero {
+            min-height: 90vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            padding: 80px 20px;
+        }
+
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(circle at 20% 50%, rgba(99, 102, 241, 0.15), transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.15), transparent 50%);
+            z-index: 0;
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            text-align: center;
+            max-width: 900px;
+            animation: fadeInUp 0.8s ease-out;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .hero-badge {
+            display: inline-block;
+            padding: 8px 16px;
+            background: rgba(99, 102, 241, 0.2);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 20px;
+            color: var(--primary-color);
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .hero-title {
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            font-weight: 800;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            background-size: 200% auto;
+            animation: gradientShift 3s ease infinite;
+        }
+
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% center; }
+            50% { background-position: 100% center; }
+        }
+
+        .hero-subtitle {
+            font-size: clamp(1.2rem, 3vw, 1.8rem);
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .hero-description {
+            font-size: clamp(1rem, 2vw, 1.2rem);
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+            line-height: 1.8;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 60px;
+        }
+
+        .btn-hero {
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-hero-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-hero-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.6);
+        }
+
+        .btn-hero-secondary {
+            background: var(--bg-light);
+            color: var(--text-primary);
+            border: 2px solid var(--border-color);
+        }
+
+        .btn-hero-secondary:hover {
+            border-color: var(--primary-color);
+            color: var(--primary-color);
+        }
+
+        .features-showcase {
+            padding: 100px 20px;
+            background: var(--bg-color);
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .section-subtitle {
+            text-align: center;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            margin-bottom: 60px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: var(--bg-light);
+            padding: 40px 30px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--primary-color);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2);
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            line-height: 1.7;
+            margin-bottom: 20px;
+        }
+
+        .feature-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .feature-list li {
+            padding: 8px 0;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-list li::before {
+            content: '✓';
+            color: var(--success-color);
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .how-it-works {
+            padding: 100px 20px;
+            background: var(--bg-light);
+        }
+
+        .steps-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .step {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 60px;
+            align-items: center;
+        }
+
+        .step:nth-child(even) {
+            flex-direction: row-reverse;
+        }
+
+        .step-number {
+            font-size: 4rem;
+            font-weight: 800;
+            color: var(--primary-color);
+            opacity: 0.3;
+            min-width: 80px;
+            text-align: center;
+        }
+
+        .step-content {
+            flex: 1;
+            background: var(--bg-color);
+            padding: 30px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .step-content h3 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+        }
+
+        .step-content p {
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .languages-section {
+            padding: 100px 20px;
+            background: var(--bg-color);
+            text-align: center;
+        }
+
+        .languages-grid {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            max-width: 900px;
+            margin: 40px auto;
+        }
+
+        .language-badge {
+            padding: 12px 24px;
+            background: var(--bg-light);
+            border: 1px solid var(--border-color);
+            border-radius: 25px;
+            color: var(--text-primary);
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .language-badge:hover {
+            border-color: var(--primary-color);
+            background: rgba(99, 102, 241, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .cta-section {
+            padding: 100px 20px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+            text-align: center;
+            border-top: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .cta-content {
+            max-width: 700px;
+            margin: 0 auto;
+        }
+
+        .footer {
+            padding: 60px 20px 30px;
+            background: var(--bg-light);
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .footer-content {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            flex-wrap: wrap;
+            margin-bottom: 30px;
+        }
+
+        .footer-link {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-link:hover {
+            color: var(--primary-color);
+        }
+
+        .footer-text {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .step {
+                flex-direction: column !important;
+            }
+
+            .step-number {
+                min-width: auto;
+            }
+
+            .hero-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .btn-hero {
+                width: 100%;
+                justify-content: center;
+            }
+        }
+    </style>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
 </head>
 <body>
-    <div class="container">
+    <script>
+        // Show user info if logged in (home page is public)
+        window.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                try {
+                    const userData = await getCurrentUser();
+                    if (userData.success && userData.user) {
+                        const userInfo = document.getElementById('user-info');
+                        const logoutBtn = document.getElementById('logout-btn');
+                        if (userInfo) {
+                            userInfo.textContent = `👤 ${userData.user.name || userData.user.email}`;
+                            userInfo.style.display = 'inline';
+                        }
+                        if (logoutBtn) {
+                            logoutBtn.style.display = 'inline-block';
+                            logoutBtn.addEventListener('click', async () => {
+                                await logout();
+                                window.location.reload();
+                            });
+                        }
+                    }
+                } catch (error) {
+                    // Token invalid, clear it
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                }
+            } else {
+                // Show login/register buttons if not logged in
+                const loginLink = document.getElementById('login-link');
+                const registerLink = document.getElementById('register-link');
+                if (loginLink) loginLink.style.display = 'inline';
+                if (registerLink) registerLink.style.display = 'inline-block';
+            }
+        });
+    </script>
+    <!-- Navbar -->
         <nav class="navbar">
             <div class="nav-content">
                 <div class="logo">
@@ -15,46 +440,246 @@
                     <span class="logo-text">CodeMind</span>
                 </div>
                 <div class="nav-links">
-                    <a href="{{ url_for('upload') }}" class="nav-link">Upload Code</a>
-                    <a href="{{ url_for('editor') }}" class="nav-link">Editor</a>
+                <a href="{{ url_for('upload') }}" class="nav-link">Upload Code</a>
+                <a href="{{ url_for('editor') }}" class="nav-link">Editor</a>
+                <span id="user-info" style="display: none; margin-left: 20px; color: var(--text-secondary);"></span>
+                <button id="logout-btn" class="btn btn-small" style="display: none; margin-left: 10px;">Logout</button>
+                <a href="{{ url_for('login_page') }}" id="login-link" class="nav-link" style="display: none; margin-left: 20px;">Login</a>
+                <a href="{{ url_for('register_page') }}" id="register-link" class="btn btn-small btn-primary" style="display: none; margin-left: 10px;">Sign Up</a>
                 </div>
             </div>
         </nav>
 
-        <main class="hero-section">
+    <!-- Hero Section -->
+    <section class="landing-hero">
+        <div class="hero-background"></div>
             <div class="hero-content">
+            <div class="hero-badge">✨ AI-Powered Coding Assistant</div>
                 <h1 class="hero-title">CodeMind</h1>
-                <p class="hero-subtitle">An AI that learns YOUR coding style</p>
+            <p class="hero-subtitle">The AI that learns YOUR coding style</p>
                 <p class="hero-description">
-                    Upload your code or connect GitHub. CodeMind analyzes your patterns and suggests improvements that match YOUR style, not generic best practices.
+                Analyze your code patterns across 20+ programming languages. Get AI suggestions that match YOUR unique style, not generic templates. <strong>Even if you've NEVER coded before, CodeMind learns YOUR style as you code!</strong>
+            </p>
+            <div style="margin-top: 30px; padding: 20px; background: rgba(99, 102, 241, 0.1); border-radius: 12px; border: 2px solid rgba(99, 102, 241, 0.3); max-width: 800px; margin-left: auto; margin-right: auto; margin-bottom: 30px;">
+                <h3 style="margin-bottom: 15px; color: var(--primary-color); font-size: 1.3rem; text-align: center;">🎓 Perfect for Beginners!</h3>
+                <p style="margin-bottom: 10px; line-height: 1.8; text-align: center;">
+                    <strong>No code? No problem!</strong> Enable Beginner Mode and start coding. CodeMind will:
                 </p>
+                <ul style="text-align: left; max-width: 600px; margin: 0 auto; line-height: 2; list-style: none; padding: 0;">
+                    <li style="padding: 5px 0;">✨ Show you multiple style options for every function</li>
+                    <li style="padding: 5px 0;">✨ Learn your preferences from your choices</li>
+                    <li style="padding: 5px 0;">✨ Adapt to YOUR style as you code</li>
+                    <li style="padding: 5px 0;">✨ After 10 interactions, knows your coding DNA!</li>
+                </ul>
+            </div>
                 <div class="hero-actions">
-                    <a href="{{ url_for('upload') }}" class="btn btn-primary btn-large">Upload Code</a>
-                    <a href="{{ url_for('editor') }}" class="btn btn-secondary btn-large">Go to Editor</a>
+                <a href="{{ url_for('upload') }}" class="btn-hero btn-hero-primary" id="get-started-btn">
+                    🚀 Get Started
+                </a>
+                <a href="{{ url_for('editor') }}" class="btn-hero btn-hero-secondary" id="try-editor-btn">
+                    💻 Try Editor
+                </a>
+            </div>
+            <!-- Login requirement message removed -->
+    <script>
+        // Authentication removed - allow access without login
+        // All buttons and links now work without authentication check
+    </script>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features-showcase">
+        <h2 class="section-title">Powerful Features</h2>
+        <p class="section-subtitle">Everything you need to code smarter, not harder</p>
+        
+        <div class="features-grid">
+            <div class="feature-card" style="border: 2px solid var(--primary-color); background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));">
+                <span class="feature-icon">🎓</span>
+                <h3>Perfect for Beginners</h3>
+                <p><strong>No code? No problem!</strong> CodeMind learns YOUR style as you code. Write 5 functions, and it knows whether you prefer clear over clever, verbose over concise.</p>
+                <ul class="feature-list">
+                    <li>Start coding immediately - no upload needed</li>
+                    <li>Learn from every interaction</li>
+                    <li>Choose from multiple style options</li>
+                    <li>Grows WITH you as you learn</li>
+                    <li>After 10 interactions, knows your style!</li>
+                </ul>
+                <div style="margin-top: 15px; padding: 10px; background: rgba(99, 102, 241, 0.15); border-radius: 8px; font-size: 0.9rem; color: var(--primary-color);">
+                    <strong>✨ Beginner Mode:</strong> Enable in the editor and start coding. CodeMind will show you multiple style options and learn your preferences!
                 </div>
             </div>
-        </main>
 
-        <section class="features-section">
-            <div class="features-grid">
+            <div class="feature-card">
+                <span class="feature-icon">🌍</span>
+                <h3>Multi-Language Support</h3>
+                <p>Analyze code in 20+ programming languages including Python, JavaScript, Java, C++, Go, Rust, and more.</p>
+                <ul class="feature-list">
+                    <li>Automatic language detection</li>
+                    <li>Language-specific pattern analysis</li>
+                    <li>Cross-language style consistency</li>
+                </ul>
+            </div>
+
                 <div class="feature-card">
-                    <div class="feature-icon">📊</div>
-                    <h3>Style Analysis</h3>
-                    <p>Analyzes your naming conventions, documentation style, and coding patterns</p>
+                <span class="feature-icon">🧬</span>
+                <h3>Style DNA Extraction</h3>
+                <p>Extract your unique coding patterns from actual code files. Understand your naming conventions, documentation style, and coding preferences.</p>
+                <ul class="feature-list">
+                    <li>Naming convention detection</li>
+                    <li>Documentation style analysis</li>
+                    <li>Error handling patterns</li>
+                    <li>Code quality scoring</li>
+                </ul>
                 </div>
+
                 <div class="feature-card">
-                    <div class="feature-icon">🤖</div>
-                    <h3>AI Suggestions</h3>
-                    <p>Get code improvements that match YOUR style, not generic templates</p>
+                <span class="feature-icon">🤖</span>
+                <h3>AI-Powered Suggestions</h3>
+                <p>Get intelligent code suggestions that match YOUR style. No generic templates—just improvements that feel like you wrote them.</p>
+                <ul class="feature-list">
+                    <li>Context-aware suggestions</li>
+                    <li>Teaching mode with explanations</li>
+                    <li>Style-matched code generation</li>
+                    <li>Real-time learning from feedback</li>
+                </ul>
                 </div>
+
                 <div class="feature-card">
-                    <div class="feature-icon">🔗</div>
+                <span class="feature-icon">🔗</span>
                     <h3>GitHub Integration</h3>
-                    <p>Analyze all your repositories to extract comprehensive coding patterns</p>
+                <p>Analyze all your repositories with a single click. Extract patterns from your entire codebase across multiple projects.</p>
+                <ul class="feature-list">
+                    <li>Multi-repository analysis</li>
+                    <li>Automatic file discovery</li>
+                    <li>Aggregated style profiles</li>
+                    <li>Comprehensive pattern extraction</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">💡</span>
+                <h3>Smart Code Editor</h3>
+                <p>Monaco editor (VS Code in browser) with real-time AI suggestions. Write code and get instant style-matched improvements.</p>
+                <ul class="feature-list">
+                    <li>VS Code-like editing experience</li>
+                    <li>Auto-suggestions after 2 seconds</li>
+                    <li>One-click accept/reject</li>
+                    <li>Code generation from requests</li>
+                </ul>
+            </div>
+
+            <div class="feature-card">
+                <span class="feature-icon">📚</span>
+                <h3>Teaching & Learning</h3>
+                <p>Learn why suggestions are better with detailed explanations. CodeMind adapts as you code, learning from your choices.</p>
+                <ul class="feature-list">
+                    <li>Educational explanations</li>
+                    <li>Pattern recognition</li>
+                    <li>Style guide export</li>
+                    <li>Continuous improvement</li>
+                </ul>
                 </div>
             </div>
         </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works">
+        <h2 class="section-title">How It Works</h2>
+        <p class="section-subtitle">Simple, powerful, and designed for developers</p>
+        
+        <div class="steps-container">
+            <div class="step">
+                <div class="step-number">01</div>
+                <div class="step-content">
+                    <h3>Start Coding (No Upload Needed!)</h3>
+                    <p><strong>For Beginners:</strong> Just start coding! Enable Beginner Mode in the editor and CodeMind learns YOUR style from every function you write. Choose from multiple style options (Concise, Descriptive, Professional) and watch it learn your preferences. <strong>For Experienced Developers:</strong> Upload local files or connect your GitHub account. CodeMind analyzes files in Python, JavaScript, Java, C++, and 20+ other languages.</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-number">02</div>
+                <div class="step-content">
+                    <h3>Extract Your Style DNA</h3>
+                    <p><strong>For Beginners:</strong> CodeMind learns incrementally! After 5-10 interactions, it knows your style preferences. Each choice you make (concise vs descriptive, documented vs minimal) builds your unique profile. <strong>For Experienced Developers:</strong> Our proprietary algorithm analyzes your coding patterns: naming conventions, documentation style, error handling, code structure, and more. Get a comprehensive style profile that represents YOUR unique coding fingerprint.</p>
+                </div>
+            </div>
+
+            <div class="step">
+                <div class="step-number">03</div>
+                <div class="step-content">
+                    <h3>Get AI Suggestions</h3>
+                    <p><strong>For Beginners:</strong> See 2-3 style options for every function you write. Click the one that feels right, and CodeMind learns your preference. It grows WITH you as you learn! <strong>For Experienced Developers:</strong> As you code, CodeMind provides real-time suggestions that match YOUR style. Context-aware improvements with teaching explanations help you understand why changes are better. Accept or reject to help CodeMind learn your preferences.</p>
+                </div>
     </div>
+
+            <div class="step">
+                <div class="step-number">04</div>
+                <div class="step-content">
+                    <h3>Generate Code in Your Style</h3>
+                    <p>Ask CodeMind to generate code, and it will create solutions matching your detected style. Whether you need a function, class, or complete module, CodeMind writes code that looks like YOU wrote it. <strong>Even if you've never coded before, CodeMind learns YOUR style!</strong></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Languages Section -->
+    <section class="languages-section">
+        <h2 class="section-title">Supported Languages</h2>
+        <p class="section-subtitle">CodeMind works with your favorite programming languages</p>
+        
+        <div class="languages-grid">
+            <div class="language-badge">Python</div>
+            <div class="language-badge">JavaScript</div>
+            <div class="language-badge">TypeScript</div>
+            <div class="language-badge">Java</div>
+            <div class="language-badge">C++</div>
+            <div class="language-badge">C#</div>
+            <div class="language-badge">Go</div>
+            <div class="language-badge">Rust</div>
+            <div class="language-badge">Ruby</div>
+            <div class="language-badge">PHP</div>
+            <div class="language-badge">Swift</div>
+            <div class="language-badge">Kotlin</div>
+            <div class="language-badge">Scala</div>
+            <div class="language-badge">HTML/CSS</div>
+            <div class="language-badge">Vue</div>
+            <div class="language-badge">SQL</div>
+            <div class="language-badge">Shell</div>
+            <div class="language-badge">And More...</div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="cta-section">
+        <div class="cta-content">
+            <h2 class="section-title">Ready to Code Smarter?</h2>
+            <p class="section-subtitle">Join developers who are using AI that actually understands their coding style</p>
+            <div class="hero-actions">
+                <a href="{{ url_for('upload') }}" class="btn-hero btn-hero-primary" id="cta-analyze-btn-2">
+                    🚀 Analyze Your Code Now
+                </a>
+                <a href="{{ url_for('editor') }}" class="btn-hero btn-hero-secondary" id="cta-editor-btn-2">
+                    💻 Try the Editor
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-content">
+            <div class="footer-links">
+                <a href="{{ url_for('index') }}" class="footer-link">Home</a>
+                <a href="{{ url_for('upload') }}" class="footer-link">Upload</a>
+                <a href="{{ url_for('editor') }}" class="footer-link">Editor</a>
+            </div>
+            <p class="footer-text">
+                Made with ❤️ for developers who want AI that learns<br>
+                CodeMind © 2024 - AI That Learns YOUR Coding Style
+            </p>
+        </div>
+    </footer>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
