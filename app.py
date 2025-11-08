@@ -6,6 +6,10 @@ from flask_cors import CORS
 import os
 from dotenv import load_dotenv
 import requests
+import subprocess
+import tempfile
+import shutil
+import re
 from code_analyzer import analyze_code_files, analyze_code
 from github_integration import fetch_all_user_code_files, fetch_user_repositories, get_github_headers
 from github_health_analyzer import analyze_github_profile_health, calculate_language_percentages, analyze_code_content
@@ -1857,6 +1861,93 @@ def disconnect_github():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/github/create-repo', methods=['POST'])
+def create_github_repo():
+    """Create a new GitHub repository"""
+    try:
+        user = get_user_from_request()
+        if not user:
+            return jsonify({'error': 'Authentication required'}), 401
+        
+        # Check if GitHub is connected
+        user_profile = get_user_profile(user.id)
+        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub account not connected',
+                'requires_connection': True
+            }), 400
+        
+        data = request.json
+        repo_name = data.get('name', '').strip()
+        description = data.get('description', '').strip()
+        private = data.get('private', False)
+        auto_init = data.get('auto_init', True)
+        
+        if not repo_name:
+            return jsonify({'error': 'Repository name is required'}), 400
+        
+        # Validate repository name (GitHub rules: alphanumeric, hyphens, underscores, dots)
+        if not re.match(r'^[a-zA-Z0-9._-]+$', repo_name):
+            return jsonify({'error': 'Repository name can only contain alphanumeric characters, hyphens, underscores, and dots'}), 400
+        
+        github_token = user_profile.github_token
+        github_username = user_profile.github_username
+        
+        headers = {
+            'Authorization': f'token {github_token}',
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'CodeMind/1.0'
+        }
+        
+        # Create repository
+        repo_data = {
+            'name': repo_name,
+            'description': description,
+            'private': private,
+            'auto_init': auto_init
+        }
+        
+        create_response = requests.post(
+            'https://api.github.com/user/repos',
+            headers=headers,
+            json=repo_data,
+            timeout=10
+        )
+        
+        if create_response.status_code in [200, 201]:
+            repo_info = create_response.json()
+            return jsonify({
+                'success': True,
+                'message': f'Repository "{repo_name}" created successfully',
+                'repo_name': repo_name,
+                'repo_url': repo_info.get('html_url', f'https://github.com/{github_username}/{repo_name}'),
+                'clone_url': repo_info.get('clone_url', ''),
+                'ssh_url': repo_info.get('ssh_url', '')
+            }), 200
+        else:
+            error_data = create_response.json() if create_response.text else {}
+            error_message = error_data.get('message', 'Failed to create repository')
+            
+            # Handle specific GitHub errors
+            if 'name already exists' in error_message.lower() or 'already exists' in error_message.lower():
+                return jsonify({
+                    'error': f'Repository "{repo_name}" already exists. Please choose a different name.'
+                }), 400
+            elif 'invalid' in error_message.lower():
+                return jsonify({
+                    'error': f'Invalid repository name: {error_message}'
+                }), 400
+            
+            return jsonify({
+                'error': f'Failed to create repository: {error_message}'
+            }), 500
+        
+    except Exception as e:
+        print(f"Error creating GitHub repository: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/git/status', methods=['POST'])
 def git_status():
     """Get Git status for current code"""
@@ -2101,6 +2192,171 @@ def serve_static(path):
     except:
         # If file not found, return 404
         return jsonify({'error': 'File not found', 'path': path}), 404
+
+
+@app.route('/api/run-code', methods=['POST'])
+def run_code():
+    """Run code with automatic requirements installation"""
+    try:
+        # Check authentication
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({'success': False, 'error': 'Authentication required'}), 401
+        
+        session = get_session(token)
+        if not session:
+            return jsonify({'success': False, 'error': 'Invalid session'}), 401
+        
+        data = request.json
+        files = data.get('files', {})
+        main_file = data.get('mainFile', 'main.py')
+        current_file = data.get('currentFile', main_file)
+        
+        if not files or main_file not in files:
+            return jsonify({'success': False, 'error': f'Main file "{main_file}" not found in files'}), 400
+        
+        # Create temporary directory
+        temp_dir = tempfile.mkdtemp(prefix='codemind_run_')
+        output = []
+        error_output = []
+        install_output = []
+        url = None
+        
+        try:
+            # Write all files to temp directory
+            for file_name, file_content in files.items():
+                file_path = os.path.join(temp_dir, file_name)
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(file_content)
+            
+            # Detect language from main file
+            main_ext = os.path.splitext(main_file)[1].lower()
+            
+            # Check for requirements files
+            requirements_file = None
+            if 'requirements.txt' in files:
+                requirements_file = os.path.join(temp_dir, 'requirements.txt')
+            elif 'package.json' in files:
+                requirements_file = os.path.join(temp_dir, 'package.json')
+            
+            # Install requirements if exists
+            if requirements_file and os.path.exists(requirements_file):
+                if main_ext == '.py':
+                    # Install Python requirements
+                    install_output.append(f"Installing Python requirements from requirements.txt...")
+                    try:
+                        result = subprocess.run(
+                            ['pip', 'install', '-r', requirements_file, '--quiet'],
+                            cwd=temp_dir,
+                            capture_output=True,
+                            text=True,
+                            timeout=60
+                        )
+                        if result.returncode == 0:
+                            install_output.append("✓ Requirements installed successfully")
+                        else:
+                            install_output.append(f"⚠ Warning: {result.stderr}")
+                    except subprocess.TimeoutExpired:
+                        install_output.append("⚠ Installation timeout (continuing anyway)")
+                    except Exception as e:
+                        install_output.append(f"⚠ Installation warning: {str(e)}")
+                elif main_ext in ['.js', '.ts']:
+                    # Install Node.js dependencies
+                    install_output.append(f"Installing Node.js dependencies from package.json...")
+                    try:
+                        result = subprocess.run(
+                            ['npm', 'install', '--silent'],
+                            cwd=temp_dir,
+                            capture_output=True,
+                            text=True,
+                            timeout=60
+                        )
+                        if result.returncode == 0:
+                            install_output.append("✓ Dependencies installed successfully")
+                        else:
+                            install_output.append(f"⚠ Warning: {result.stderr}")
+                    except subprocess.TimeoutExpired:
+                        install_output.append("⚠ Installation timeout (continuing anyway)")
+                    except Exception as e:
+                        install_output.append(f"⚠ Installation warning: {str(e)}")
+            
+            # Run the code
+            main_path = os.path.join(temp_dir, main_file)
+            
+            if main_ext == '.py':
+                # Run Python code
+                result = subprocess.run(
+                    ['python', main_path],
+                    cwd=temp_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                output.append(result.stdout)
+                if result.stderr:
+                    error_output.append(result.stderr)
+            
+            elif main_ext in ['.js', '.ts']:
+                # Run Node.js code
+                result = subprocess.run(
+                    ['node', main_path],
+                    cwd=temp_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                output.append(result.stdout)
+                if result.stderr:
+                    error_output.append(result.stderr)
+            
+            # Check if it's a web app (Flask, Express, etc.)
+            main_content = files.get(main_file, '')
+            if 'app.run' in main_content or 'app.listen' in main_content or 'flask' in main_content.lower() or 'express' in main_content.lower():
+                # Extract port from code or use default
+                port_match = re.search(r'port[=\s:]+(\d+)', main_content, re.IGNORECASE)
+                port = int(port_match.group(1)) if port_match else 5000
+                
+                # For web apps, we can't actually run them in subprocess easily
+                # Instead, return a message that it's a web app
+                output.append(f"\n🌐 Web application detected (port {port})")
+                output.append(f"Note: Web applications need to be deployed to run. This is a code preview.")
+                url = f"http://localhost:{port}"  # Informational only
+            
+            # Combine output
+            full_output = '\n'.join(output) if output else ''
+            full_error = '\n'.join(error_output) if error_output else None
+            full_install = '\n'.join(install_output) if install_output else None
+            
+            return jsonify({
+                'success': True,
+                'output': full_output,
+                'error': full_error,
+                'installOutput': full_install,
+                'url': url,
+                'mainFile': main_file
+            }), 200
+            
+        finally:
+            # Cleanup temp directory
+            try:
+                shutil.rmtree(temp_dir)
+            except:
+                pass
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False,
+            'error': 'Code execution timeout (30 seconds). Your code may be taking too long to run.'
+        }), 408
+    except Exception as e:
+        import traceback
+        print(f"Error running code: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Failed to run code: {str(e)}'
+        }), 500
 
 
 if __name__ == '__main__':

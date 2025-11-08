@@ -72,6 +72,19 @@ require(['vs/editor/editor.main'], function () {
         minimap: { enabled: false }
     });
     
+    // Initialize file system with current editor content
+    if (editor) {
+        const initialCode = editor.getValue();
+        if (initialCode && initialCode.trim() !== '# Start typing your Python code here...\n\n') {
+            window.fileSystem['main.py'] = initialCode;
+            window.currentFile = 'main.py';
+        } else {
+            // Initialize empty main.py
+            window.fileSystem['main.py'] = '';
+            window.currentFile = 'main.py';
+        }
+    }
+    
     // Initialize sidebar after editor is ready
     initializeSidebar();
     
@@ -1359,24 +1372,19 @@ function initializeVSCodeMenu() {
         updateStatus(`Word wrap: ${isWordWrapEnabled ? 'on' : 'off'}`, 'success');
     });
     
-    // Run Menu
-    document.getElementById('run-code')?.addEventListener('click', () => {
-        const code = editor.getValue();
-        if (!code.trim()) {
-            updateStatus('No code to run', 'warning');
-            return;
-        }
-        updateStatus('Running code...', 'loading');
-        // Terminal simulation
-        const terminalPanel = document.getElementById('terminal-panel');
-        const terminalContent = document.getElementById('terminal-content');
-        if (terminalPanel && terminalContent) {
-            terminalPanel.style.display = 'flex';
-            isTerminalVisible = true;
-            terminalContent.textContent = `$ Running code...\n${code}\n$ Code execution completed.\n`;
-            updateStatus('Code executed (simulated)', 'success');
-        }
+    // Run Menu - Execute code with auto-install requirements
+    document.getElementById('run-code')?.addEventListener('click', async () => {
+        await runCode();
     });
+    
+    // Save current file when editor content changes
+    if (editor) {
+        editor.onDidChangeModelContent(() => {
+            if (window.currentFile) {
+                window.fileSystem[window.currentFile] = editor.getValue();
+            }
+        });
+    }
     
     document.getElementById('debug-code')?.addEventListener('click', () => {
         updateStatus('Debug mode (simulated)', 'info');
@@ -1645,6 +1653,10 @@ async function selectStyleOption(option, originalCode) {
     }
 }
 
+// File System Storage (in-memory)
+window.fileSystem = window.fileSystem || {};
+window.currentFile = window.currentFile || null;
+
 // VS Code Sidebar Functionality
 function initializeSidebar() {
     // Toggle Sidebar
@@ -1715,6 +1727,25 @@ function initializeSidebar() {
         await disconnectGitHub();
     });
     
+    // Create Repository Button
+    document.getElementById('create-repo-btn')?.addEventListener('click', () => {
+        showCreateRepoModal();
+    });
+    
+    // Close Create Repo Modal
+    document.getElementById('close-create-repo-modal-btn')?.addEventListener('click', () => {
+        hideCreateRepoModal();
+    });
+    
+    document.getElementById('close-create-repo-modal-btn-2')?.addEventListener('click', () => {
+        hideCreateRepoModal();
+    });
+    
+    // Create Repository Submit
+    document.getElementById('create-repo-submit-btn')?.addEventListener('click', async () => {
+        await createGitHubRepo();
+    });
+    
     // Git Actions
     document.getElementById('git-status-btn')?.addEventListener('click', async () => {
         await gitStatus();
@@ -1745,18 +1776,116 @@ function initializeSidebar() {
         document.getElementById('format-code')?.click();
     });
     
-    // File Tree Click
-    const fileTreeItems = document.querySelectorAll('.file-tree-item');
-    fileTreeItems.forEach(item => {
-        item.addEventListener('click', () => {
-            fileTreeItems.forEach(i => i.classList.remove('active'));
-            item.classList.add('active');
-            const fileName = item.dataset.file;
-            if (fileName && typeof showToast === 'function') {
-                showToast(`Opened: ${fileName}`, 'info');
-            }
+    // File Tree Click - Open file in editor
+    function setupFileTreeClick() {
+        const fileTreeItems = document.querySelectorAll('.file-tree-item');
+        fileTreeItems.forEach(item => {
+            item.addEventListener('click', () => {
+                fileTreeItems.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                const fileName = item.dataset.file;
+                if (fileName) {
+                    openFileInEditor(fileName);
+                }
+            });
         });
-    });
+    }
+    
+    // Setup initial file tree items
+    setupFileTreeClick();
+    
+    // Re-setup when new files are added
+    const originalAddFileToTree = addFileToTree;
+    addFileToTree = function(fileName) {
+        originalAddFileToTree(fileName);
+        setupFileTreeClick();
+    };
+}
+
+// Open file in editor
+function openFileInEditor(fileName) {
+    if (!editor) return;
+    
+    // Save current file if exists
+    if (window.currentFile && window.fileSystem[window.currentFile]) {
+        window.fileSystem[window.currentFile] = editor.getValue();
+    }
+    
+    // Load file content
+    let fileContent = '';
+    if (window.fileSystem[fileName]) {
+        // File exists in memory, load it
+        fileContent = window.fileSystem[fileName];
+    } else {
+        // New file or file not in memory, check if it's in editor
+        if (window.currentFile === fileName) {
+            fileContent = editor.getValue();
+        } else {
+            // New file, initialize empty
+            fileContent = '';
+        }
+        window.fileSystem[fileName] = fileContent;
+    }
+    
+    // Set file content in editor
+    editor.setValue(fileContent);
+    
+    // Set language based on file extension
+    const lang = getLanguageFromFileName(fileName);
+    monaco.editor.setModelLanguage(editor.getModel(), lang);
+    
+    // Update language selector
+    const langSelector = document.getElementById('language-selector');
+    if (langSelector) {
+        langSelector.value = lang;
+    }
+    
+    // Update current file
+    window.currentFile = fileName;
+    
+    // Show toast
+    if (typeof showToast === 'function') {
+        showToast(`Opened: ${fileName}`, 'info');
+    }
+    
+    // Update status
+    updateStatus(`File: ${fileName}`, 'info');
+}
+
+// Save current file
+function saveCurrentFile() {
+    if (!editor || !window.currentFile) return;
+    
+    const content = editor.getValue();
+    window.fileSystem[window.currentFile] = content;
+    
+    if (typeof showToast === 'function') {
+        showToast(`Saved: ${window.currentFile}`, 'success');
+    }
+}
+
+// Get main file from file system
+function getMainFile() {
+    const mainFiles = ['main.py', 'app.py', 'index.js', 'server.js', 'app.js', 'main.js', 'index.py', 'run.py'];
+    
+    // Check for main files in file system
+    for (const mainFile of mainFiles) {
+        if (window.fileSystem[mainFile]) {
+            return mainFile;
+        }
+    }
+    
+    // If no main file found, use current file or first file
+    if (window.currentFile) {
+        return window.currentFile;
+    }
+    
+    const files = Object.keys(window.fileSystem);
+    if (files.length > 0) {
+        return files[0];
+    }
+    
+    return null;
 }
 
 function addFolderToTree(folderName) {
@@ -1775,6 +1904,14 @@ function addFolderToTree(folderName) {
 function addFileToTree(fileName) {
     const fileTree = document.getElementById('file-tree');
     if (fileTree) {
+        // Check if file already exists
+        const existingItem = fileTree.querySelector(`[data-file="${fileName}"]`);
+        if (existingItem) {
+            // File exists, just open it
+            existingItem.click();
+            return;
+        }
+        
         const fileItem = document.createElement('div');
         fileItem.className = 'file-tree-item';
         fileItem.dataset.file = fileName;
@@ -1784,9 +1921,17 @@ function addFileToTree(fileName) {
             <span class="file-name">${fileName}</span>
         `;
         fileTree.appendChild(fileItem);
+        
+        // Initialize file in file system if not exists
+        if (!window.fileSystem[fileName]) {
+            window.fileSystem[fileName] = '';
+        }
+        
+        // Add click handler to open file
         fileItem.addEventListener('click', () => {
             document.querySelectorAll('.file-tree-item').forEach(i => i.classList.remove('active'));
             fileItem.classList.add('active');
+            openFileInEditor(fileName);
         });
     }
 }
@@ -1805,9 +1950,135 @@ function getLanguageFromFileName(fileName) {
     const ext = fileName.split('.').pop().toLowerCase();
     const langMap = {
         'py': 'python', 'js': 'javascript', 'ts': 'typescript', 'java': 'java',
-        'html': 'html', 'css': 'css', 'json': 'json', 'md': 'markdown'
+        'html': 'html', 'css': 'css', 'json': 'json', 'md': 'markdown',
+        'cpp': 'cpp', 'c': 'c', 'go': 'go', 'rs': 'rust', 'rb': 'ruby',
+        'php': 'php', 'swift': 'swift', 'kt': 'kotlin', 'scala': 'scala'
     };
     return langMap[ext] || 'python';
+}
+
+// Run Code Function
+async function runCode() {
+    if (!editor) {
+        if (typeof showToast === 'function') {
+            showToast('Editor not initialized', 'error');
+        }
+        return;
+    }
+    
+    // Save current file
+    saveCurrentFile();
+    
+    // Get main file or current file
+    const mainFile = getMainFile();
+    if (!mainFile) {
+        if (typeof showToast === 'function') {
+            showToast('No file to run. Please create or open a file.', 'warning');
+        }
+        updateStatus('No file to run', 'warning');
+        return;
+    }
+    
+    // Get all files in file system
+    const files = {};
+    Object.keys(window.fileSystem).forEach(fileName => {
+        files[fileName] = window.fileSystem[fileName];
+    });
+    
+    // Show terminal
+    const terminalPanel = document.getElementById('terminal-panel');
+    const terminalContent = document.getElementById('terminal-content');
+    if (terminalPanel && terminalContent) {
+        terminalPanel.style.display = 'flex';
+        isTerminalVisible = true;
+        terminalContent.innerHTML = `<div style="color: var(--text-secondary);">$ Running code...</div>`;
+    }
+    
+    updateStatus('Running code...', 'loading');
+    
+    try {
+        // Call backend to run code
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/run-code', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                files: files,
+                mainFile: mainFile,
+                currentFile: window.currentFile
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            // Display output in terminal
+            let outputHtml = `<div style="color: var(--success); margin-bottom: 10px;">$ Code execution completed successfully!</div>\n`;
+            
+            if (data.installOutput) {
+                outputHtml += `<div style="color: var(--info); margin-bottom: 10px; white-space: pre-wrap; font-family: monospace; background: var(--bg-secondary); padding: 10px; border-radius: 8px;">${escapeHtml(data.installOutput)}</div>\n`;
+            }
+            
+            if (data.output) {
+                outputHtml += `<div style="color: var(--text-primary); white-space: pre-wrap; font-family: monospace; background: var(--bg-card); padding: 10px; border-radius: 8px; margin-bottom: 10px;">${escapeHtml(data.output)}</div>\n`;
+            }
+            
+            if (data.error) {
+                outputHtml += `<div style="color: var(--error); white-space: pre-wrap; font-family: monospace; background: var(--error-bg); padding: 10px; border-radius: 8px; margin-bottom: 10px;">Error: ${escapeHtml(data.error)}</div>\n`;
+            }
+            
+            if (data.url) {
+                outputHtml += `<div style="margin-top: 15px; padding: 15px; background: var(--bg-card); border-radius: 12px; border: 2px solid var(--accent-primary);">`;
+                outputHtml += `<div style="color: var(--text-primary); margin-bottom: 10px; font-weight: 600; font-size: 1.1rem;">🌐 Application Running:</div>`;
+                outputHtml += `<a href="${data.url}" target="_blank" style="color: var(--accent-primary); text-decoration: underline; font-size: 1.2rem; font-weight: 700; word-break: break-all;">${data.url}</a>`;
+                outputHtml += `<div style="color: var(--text-secondary); margin-top: 8px; font-size: 0.9rem;">Click to open in new tab</div>`;
+                outputHtml += `</div>\n`;
+            }
+            
+            if (terminalContent) {
+                terminalContent.innerHTML = outputHtml;
+            }
+            
+            updateStatus('Code executed successfully', 'success');
+            if (typeof showToast === 'function') {
+                showToast('Code executed successfully!', 'success');
+            }
+        } else {
+            // Error running code
+            let errorHtml = `<div style="color: var(--error); margin-bottom: 10px;">$ Error running code</div>\n`;
+            if (data.error) {
+                errorHtml += `<div style="color: var(--error); white-space: pre-wrap; font-family: monospace; background: var(--error-bg); padding: 10px; border-radius: 8px;">${escapeHtml(data.error)}</div>\n`;
+            }
+            
+            if (terminalContent) {
+                terminalContent.innerHTML = errorHtml;
+            }
+            
+            updateStatus('Code execution failed', 'error');
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Code execution failed', 'error');
+            }
+        }
+    } catch (error) {
+        console.error('Error running code:', error);
+        if (terminalContent) {
+            terminalContent.innerHTML = `<div style="color: var(--error);">$ Error: ${escapeHtml(error.message)}</div>\n`;
+        }
+        updateStatus('Code execution failed', 'error');
+        if (typeof showToast === 'function') {
+            showToast('Failed to run code: ' + error.message, 'error');
+        }
+    }
+}
+
+// Escape HTML for terminal output
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 // Accept/Reject Dialog Functions
@@ -2113,6 +2384,115 @@ async function disconnectGitHub() {
     } catch (error) {
         if (typeof showToast === 'function') {
             showToast('Error disconnecting GitHub: ' + error.message, 'error');
+        }
+    }
+}
+
+// Create Repository Modal Functions
+function showCreateRepoModal() {
+    const modal = document.getElementById('create-repo-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        // Clear form
+        const nameInput = document.getElementById('repo-name-input');
+        const descInput = document.getElementById('repo-description-input');
+        const privateInput = document.getElementById('repo-private-input');
+        const initReadmeInput = document.getElementById('repo-init-readme');
+        
+        if (nameInput) nameInput.value = '';
+        if (descInput) descInput.value = '';
+        if (privateInput) privateInput.checked = false;
+        if (initReadmeInput) initReadmeInput.checked = true;
+        
+        // Focus on name input
+        if (nameInput) nameInput.focus();
+    }
+}
+
+function hideCreateRepoModal() {
+    const modal = document.getElementById('create-repo-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// Create GitHub Repository
+async function createGitHubRepo() {
+    const nameInput = document.getElementById('repo-name-input');
+    const descriptionInput = document.getElementById('repo-description-input');
+    const privateInput = document.getElementById('repo-private-input');
+    const initReadmeInput = document.getElementById('repo-init-readme');
+    const submitBtn = document.getElementById('create-repo-submit-btn');
+    
+    const repoName = nameInput?.value.trim();
+    const description = descriptionInput?.value.trim();
+    const isPrivate = privateInput?.checked;
+    const autoInit = initReadmeInput?.checked;
+    
+    if (!repoName) {
+        if (typeof showToast === 'function') {
+            showToast('Please enter a repository name', 'error');
+        }
+        if (nameInput) nameInput.focus();
+        return;
+    }
+    
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Creating...';
+    }
+    
+    updateStatus('Creating repository...', 'loading');
+    
+    try {
+        const response = await fetch(`${window.API_BASE}/api/github/create-repo`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({
+                name: repoName,
+                description: description,
+                private: isPrivate,
+                auto_init: autoInit
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.success) {
+            hideCreateRepoModal();
+            updateStatus('✅ Repository created successfully!', 'success');
+            if (typeof showToast === 'function') {
+                showToast(`✅ Repository "${repoName}" created! View: ${data.repo_url}`, 'success');
+            }
+            
+            // Optionally open the repository URL
+            if (data.repo_url && confirm(`Repository created successfully!\n\nWould you like to open it in a new tab?`)) {
+                window.open(data.repo_url, '_blank');
+            }
+        } else if (data.requires_connection) {
+            hideCreateRepoModal();
+            showGitHubConnectionModal();
+            if (typeof showToast === 'function') {
+                showToast('Please connect GitHub account first', 'warning');
+            }
+        } else {
+            updateStatus('Failed to create repository', 'error');
+            if (typeof showToast === 'function') {
+                showToast(data.error || 'Failed to create repository', 'error');
+            }
+        }
+    } catch (error) {
+        updateStatus('Error creating repository', 'error');
+        if (typeof showToast === 'function') {
+            showToast('Error creating repository: ' + error.message, 'error');
+        }
+    } finally {
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = '➕ Create Repository';
         }
     }
 }
