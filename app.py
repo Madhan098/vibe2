@@ -1865,19 +1865,38 @@ def disconnect_github():
 def create_github_repo():
     """Create a new GitHub repository"""
     try:
+        # Check if request has JSON data
+        if not request.is_json:
+            return jsonify({'error': 'JSON data required'}), 400
+        
         user = get_user_from_request()
         if not user:
             return jsonify({'error': 'Authentication required'}), 401
         
         # Check if GitHub is connected
         user_profile = get_user_profile(user.id)
-        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+        if not user_profile:
+            return jsonify({
+                'error': 'User profile not found',
+                'requires_connection': True
+            }), 400
+        
+        if not user_profile.github_connected:
             return jsonify({
                 'error': 'GitHub account not connected',
                 'requires_connection': True
             }), 400
         
+        if not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub token not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
+        
         data = request.json
+        if not data:
+            return jsonify({'error': 'Request data required'}), 400
+        
         repo_name = data.get('name', '').strip()
         description = data.get('description', '').strip()
         private = data.get('private', False)
@@ -1893,6 +1912,37 @@ def create_github_repo():
         github_token = user_profile.github_token
         github_username = user_profile.github_username
         
+        # If username is not set, try to get it from GitHub API
+        if not github_username:
+            try:
+                headers_temp = {
+                    'Authorization': f'token {github_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'CodeMind/1.0'
+                }
+                user_response = requests.get('https://api.github.com/user', headers=headers_temp, timeout=10)
+                if user_response.status_code == 200:
+                    github_username = user_response.json().get('login', '')
+                    if github_username:
+                        user_profile.github_username = github_username
+                else:
+                    return jsonify({
+                        'error': 'Failed to verify GitHub token. Please reconnect your GitHub account.',
+                        'requires_connection': True
+                    }), 400
+            except Exception as e:
+                print(f"Error fetching GitHub username: {e}")
+                return jsonify({
+                    'error': 'Failed to verify GitHub account. Please reconnect.',
+                    'requires_connection': True
+                }), 400
+        
+        if not github_username:
+            return jsonify({
+                'error': 'GitHub username not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
+        
         headers = {
             'Authorization': f'token {github_token}',
             'Accept': 'application/vnd.github.v3+json',
@@ -1907,15 +1957,31 @@ def create_github_repo():
             'auto_init': auto_init
         }
         
-        create_response = requests.post(
-            'https://api.github.com/user/repos',
-            headers=headers,
-            json=repo_data,
-            timeout=10
-        )
+        try:
+            create_response = requests.post(
+                'https://api.github.com/user/repos',
+                headers=headers,
+                json=repo_data,
+                timeout=10
+            )
+        except requests.exceptions.Timeout:
+            return jsonify({
+                'error': 'Request to GitHub API timed out. Please try again.'
+            }), 500
+        except requests.exceptions.RequestException as e:
+            print(f"GitHub API request error: {e}")
+            return jsonify({
+                'error': f'Failed to connect to GitHub API: {str(e)}'
+            }), 500
         
         if create_response.status_code in [200, 201]:
-            repo_info = create_response.json()
+            try:
+                repo_info = create_response.json()
+            except ValueError:
+                return jsonify({
+                    'error': 'Invalid response from GitHub API'
+                }), 500
+            
             return jsonify({
                 'success': True,
                 'message': f'Repository "{repo_name}" created successfully',
@@ -1925,7 +1991,11 @@ def create_github_repo():
                 'ssh_url': repo_info.get('ssh_url', '')
             }), 200
         else:
-            error_data = create_response.json() if create_response.text else {}
+            try:
+                error_data = create_response.json() if create_response.text else {}
+            except ValueError:
+                error_data = {}
+            
             error_message = error_data.get('message', 'Failed to create repository')
             
             # Handle specific GitHub errors
@@ -1937,16 +2007,29 @@ def create_github_repo():
                 return jsonify({
                     'error': f'Invalid repository name: {error_message}'
                 }), 400
+            elif create_response.status_code == 401:
+                return jsonify({
+                    'error': 'GitHub token is invalid or expired. Please reconnect your GitHub account.',
+                    'requires_connection': True
+                }), 401
+            elif create_response.status_code == 403:
+                return jsonify({
+                    'error': 'GitHub API rate limit exceeded or insufficient permissions. Please try again later.'
+                }), 403
             
             return jsonify({
-                'error': f'Failed to create repository: {error_message}'
+                'error': f'Failed to create repository: {error_message}',
+                'status_code': create_response.status_code
             }), 500
         
     except Exception as e:
         print(f"Error creating GitHub repository: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': f'Internal server error: {str(e)}',
+            'type': type(e).__name__
+        }), 500
 
 @app.route('/api/git/status', methods=['POST'])
 def git_status():
