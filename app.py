@@ -8,6 +8,11 @@ from dotenv import load_dotenv
 from code_analyzer import analyze_code_files
 from github_integration import fetch_all_user_code_files
 from ai_engine import AIEngine
+from models import (
+    create_user, get_user_by_email, get_user_by_id,
+    create_session, get_session, delete_session,
+    get_user_profile
+)
 
 load_dotenv()
 
@@ -33,6 +38,113 @@ ai_engine = AIEngine(api_key=os.getenv('GEMINI_API_KEY'))
 # ==========================================
 # API ROUTES
 # ==========================================
+
+# Authentication routes
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """Register a new user"""
+    try:
+        data = request.json
+        name = data.get('name', '').strip()
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        if not name or not email or not password:
+            return jsonify({'error': 'Name, email, and password are required'}), 400
+        
+        if len(password) < 6:
+            return jsonify({'error': 'Password must be at least 6 characters'}), 400
+        
+        user, error = create_user(email, name, password)
+        if error:
+            return jsonify({'error': error}), 400
+        
+        # Create session
+        token = create_session(user.id)
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'user': user.to_dict()
+        }), 201
+        
+    except Exception as e:
+        print(f"Error registering user: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def login():
+    """Login user"""
+    try:
+        data = request.json
+        email = data.get('email', '').strip()
+        password = data.get('password', '')
+        
+        if not email or not password:
+            return jsonify({'error': 'Email and password are required'}), 400
+        
+        user = get_user_by_email(email)
+        if not user:
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        if not user.check_password(password):
+            return jsonify({'error': 'Invalid email or password'}), 401
+        
+        # Create session
+        token = create_session(user.id)
+        
+        return jsonify({
+            'success': True,
+            'token': token,
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        print(f"Error logging in: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def logout():
+    """Logout user"""
+    try:
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if token:
+            delete_session(token)
+        
+        return jsonify({'success': True}), 200
+        
+    except Exception as e:
+        print(f"Error logging out: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def get_current_user():
+    """Get current authenticated user"""
+    try:
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({'error': 'Not authenticated'}), 401
+        
+        session = get_session(token)
+        if not session:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+        
+        user = get_user_by_id(session['user_id'])
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+        
+        return jsonify({
+            'success': True,
+            'user': user.to_dict()
+        }), 200
+        
+    except Exception as e:
+        print(f"Error getting current user: {e}")
+        return jsonify({'error': str(e)}), 500
+
 
 @app.route('/api/analyze-files', methods=['POST'])
 def analyze_files():
@@ -148,6 +260,18 @@ def upload():
 def editor():
     """Serve editor.html"""
     return render_template('editor.html')
+
+
+@app.route('/login.html')
+def login_page():
+    """Serve login.html"""
+    return render_template('login.html')
+
+
+@app.route('/register.html')
+def register_page():
+    """Serve register.html"""
+    return render_template('register.html')
 
 
 # Serve static files (CSS, JS, images)
