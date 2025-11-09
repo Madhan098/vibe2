@@ -1992,6 +1992,8 @@ async function runCode() {
         terminalPanel.style.display = 'flex';
         isTerminalVisible = true;
         terminalContent.innerHTML = `<div style="color: var(--text-secondary);">$ Running code...</div>`;
+        // Scroll terminal to bottom
+        terminalContent.scrollTop = terminalContent.scrollHeight;
     }
     
     updateStatus('Running code...', 'loading');
@@ -2040,6 +2042,14 @@ async function runCode() {
             
             if (terminalContent) {
                 terminalContent.innerHTML = outputHtml;
+                // Scroll terminal to bottom to show latest output
+                terminalContent.scrollTop = terminalContent.scrollHeight;
+            }
+            
+            // Ensure terminal is visible
+            if (terminalPanel) {
+                terminalPanel.style.display = 'flex';
+                isTerminalVisible = true;
             }
             
             updateStatus('Code executed successfully', 'success');
@@ -2055,6 +2065,14 @@ async function runCode() {
             
             if (terminalContent) {
                 terminalContent.innerHTML = errorHtml;
+                // Scroll terminal to bottom to show error
+                terminalContent.scrollTop = terminalContent.scrollHeight;
+            }
+            
+            // Ensure terminal is visible
+            if (terminalPanel) {
+                terminalPanel.style.display = 'flex';
+                isTerminalVisible = true;
             }
             
             updateStatus('Code execution failed', 'error');

@@ -2067,19 +2067,38 @@ def git_status():
 def git_commit():
     """Commit code to GitHub repository"""
     try:
+        # Check if request has JSON data
+        if not request.is_json:
+            return jsonify({'error': 'JSON data required'}), 400
+        
         user = get_user_from_request()
         if not user:
             return jsonify({'error': 'Authentication required'}), 401
         
         # Check if GitHub is connected
         user_profile = get_user_profile(user.id)
-        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+        if not user_profile:
+            return jsonify({
+                'error': 'User profile not found',
+                'requires_connection': True
+            }), 400
+        
+        if not user_profile.github_connected:
             return jsonify({
                 'error': 'GitHub account not connected',
                 'requires_connection': True
             }), 400
         
+        if not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub token not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
+        
         data = request.json
+        if not data:
+            return jsonify({'error': 'Request data required'}), 400
+        
         code = data.get('code', '')
         filename = data.get('filename', 'untitled.py')
         message = data.get('message', 'Update code')
@@ -2092,6 +2111,37 @@ def git_commit():
         github_token = user_profile.github_token
         github_username = user_profile.github_username
         
+        # If username is not set, try to get it from GitHub API
+        if not github_username:
+            try:
+                headers_temp = {
+                    'Authorization': f'token {github_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'CodeMind/1.0'
+                }
+                user_response = requests.get('https://api.github.com/user', headers=headers_temp, timeout=10)
+                if user_response.status_code == 200:
+                    github_username = user_response.json().get('login', '')
+                    if github_username:
+                        user_profile.github_username = github_username
+                else:
+                    return jsonify({
+                        'error': 'Failed to verify GitHub token. Please reconnect your GitHub account.',
+                        'requires_connection': True
+                    }), 400
+            except Exception as e:
+                print(f"Error fetching GitHub username: {e}")
+                return jsonify({
+                    'error': 'Failed to verify GitHub account. Please reconnect.',
+                    'requires_connection': True
+                }), 400
+        
+        if not github_username:
+            return jsonify({
+                'error': 'GitHub username not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
+        
         headers = {
             'Authorization': f'token {github_token}',
             'Accept': 'application/vnd.github.v3+json',
@@ -2101,30 +2151,55 @@ def git_commit():
         # Create or update file in repository
         # First, check if repo exists
         repo_url = f'https://api.github.com/repos/{github_username}/{repo_name}'
-        repo_response = requests.get(repo_url, headers=headers, timeout=10)
+        try:
+            repo_response = requests.get(repo_url, headers=headers, timeout=10)
+        except requests.exceptions.RequestException as e:
+            print(f"Error checking repository: {e}")
+            return jsonify({
+                'error': f'Failed to connect to GitHub API: {str(e)}'
+            }), 500
         
         if repo_response.status_code == 404:
             # Create repository
-            create_repo_response = requests.post(
-                'https://api.github.com/user/repos',
-                headers=headers,
-                json={
-                    'name': repo_name,
-                    'private': False,
-                    'auto_init': True
-                },
-                timeout=10
-            )
-            if create_repo_response.status_code not in [200, 201]:
-                return jsonify({'error': 'Failed to create repository'}), 500
+            try:
+                create_repo_response = requests.post(
+                    'https://api.github.com/user/repos',
+                    headers=headers,
+                    json={
+                        'name': repo_name,
+                        'private': False,
+                        'auto_init': True
+                    },
+                    timeout=10
+                )
+                if create_repo_response.status_code not in [200, 201]:
+                    error_data = create_repo_response.json() if create_repo_response.text else {}
+                    error_message = error_data.get('message', 'Failed to create repository')
+                    return jsonify({
+                        'error': f'Failed to create repository: {error_message}'
+                    }), 500
+            except requests.exceptions.RequestException as e:
+                print(f"Error creating repository: {e}")
+                return jsonify({
+                    'error': f'Failed to create repository: {str(e)}'
+                }), 500
         
         # Get current file content (if exists)
         file_url = f'https://api.github.com/repos/{github_username}/{repo_name}/contents/{filename}'
-        file_response = requests.get(file_url, headers=headers, timeout=10)
+        try:
+            file_response = requests.get(file_url, headers=headers, timeout=10)
+        except requests.exceptions.RequestException as e:
+            print(f"Error getting file: {e}")
+            return jsonify({
+                'error': f'Failed to get file from GitHub: {str(e)}'
+            }), 500
         
         sha = None
         if file_response.status_code == 200:
-            sha = file_response.json().get('sha')
+            try:
+                sha = file_response.json().get('sha')
+            except ValueError:
+                pass
         
         # Create or update file
         import base64
@@ -2138,10 +2213,21 @@ def git_commit():
         if sha:
             file_data['sha'] = sha
         
-        update_response = requests.put(file_url, headers=headers, json=file_data, timeout=10)
+        try:
+            update_response = requests.put(file_url, headers=headers, json=file_data, timeout=10)
+        except requests.exceptions.RequestException as e:
+            print(f"Error updating file: {e}")
+            return jsonify({
+                'error': f'Failed to commit to GitHub: {str(e)}'
+            }), 500
         
         if update_response.status_code in [200, 201]:
-            commit_url = update_response.json().get('content', {}).get('html_url', '')
+            try:
+                response_data = update_response.json()
+                commit_url = response_data.get('content', {}).get('html_url', '')
+            except ValueError:
+                commit_url = ''
+            
             return jsonify({
                 'success': True,
                 'message': f'Code committed successfully',
@@ -2149,15 +2235,25 @@ def git_commit():
                 'repo_url': f'https://github.com/{github_username}/{repo_name}'
             }), 200
         else:
+            try:
+                error_data = update_response.json() if update_response.text else {}
+                error_message = error_data.get('message', 'Unknown error')
+            except ValueError:
+                error_message = 'Unknown error'
+            
             return jsonify({
-                'error': f'Failed to commit: {update_response.json().get("message", "Unknown error")}'
+                'error': f'Failed to commit: {error_message}',
+                'status_code': update_response.status_code
             }), 500
         
     except Exception as e:
         print(f"Error committing to GitHub: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': f'Internal server error: {str(e)}',
+            'type': type(e).__name__
+        }), 500
 
 @app.route('/api/git/push', methods=['POST'])
 def git_push():
@@ -2187,24 +2283,74 @@ def git_push():
 def git_pull():
     """Pull latest changes from GitHub"""
     try:
+        # Check if request has JSON data
+        if not request.is_json:
+            return jsonify({'error': 'JSON data required'}), 400
+        
         user = get_user_from_request()
         if not user:
             return jsonify({'error': 'Authentication required'}), 401
         
         user_profile = get_user_profile(user.id)
-        if not user_profile or not user_profile.github_connected or not user_profile.github_token:
+        if not user_profile:
+            return jsonify({
+                'error': 'User profile not found',
+                'requires_connection': True
+            }), 400
+        
+        if not user_profile.github_connected:
             return jsonify({
                 'error': 'GitHub account not connected',
                 'requires_connection': True
             }), 400
         
+        if not user_profile.github_token:
+            return jsonify({
+                'error': 'GitHub token not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
+        
         data = request.json
+        if not data:
+            return jsonify({'error': 'Request data required'}), 400
+        
         repo_name = data.get('repo', 'codemind-project')
         filename = data.get('filename', 'untitled.py')
         branch = data.get('branch', 'main')
         
         github_token = user_profile.github_token
         github_username = user_profile.github_username
+        
+        # If username is not set, try to get it from GitHub API
+        if not github_username:
+            try:
+                headers_temp = {
+                    'Authorization': f'token {github_token}',
+                    'Accept': 'application/vnd.github.v3+json',
+                    'User-Agent': 'CodeMind/1.0'
+                }
+                user_response = requests.get('https://api.github.com/user', headers=headers_temp, timeout=10)
+                if user_response.status_code == 200:
+                    github_username = user_response.json().get('login', '')
+                    if github_username:
+                        user_profile.github_username = github_username
+                else:
+                    return jsonify({
+                        'error': 'Failed to verify GitHub token. Please reconnect your GitHub account.',
+                        'requires_connection': True
+                    }), 400
+            except Exception as e:
+                print(f"Error fetching GitHub username: {e}")
+                return jsonify({
+                    'error': 'Failed to verify GitHub account. Please reconnect.',
+                    'requires_connection': True
+                }), 400
+        
+        if not github_username:
+            return jsonify({
+                'error': 'GitHub username not found. Please reconnect your GitHub account.',
+                'requires_connection': True
+            }), 400
         
         headers = {
             'Authorization': f'token {github_token}',
@@ -2214,33 +2360,57 @@ def git_pull():
         
         # Get file content from GitHub
         file_url = f'https://api.github.com/repos/{github_username}/{repo_name}/contents/{filename}?ref={branch}'
-        file_response = requests.get(file_url, headers=headers, timeout=10)
+        try:
+            file_response = requests.get(file_url, headers=headers, timeout=10)
+        except requests.exceptions.RequestException as e:
+            print(f"Error pulling from GitHub: {e}")
+            return jsonify({
+                'error': f'Failed to connect to GitHub API: {str(e)}'
+            }), 500
         
         if file_response.status_code == 200:
-            import base64
-            file_data = file_response.json()
-            content_encoded = file_data.get('content', '')
-            content = base64.b64decode(content_encoded).decode('utf-8')
-            
-            return jsonify({
-                'success': True,
-                'code': content,
-                'message': f'Pulled latest changes from {branch} branch'
-            }), 200
+            try:
+                import base64
+                file_data = file_response.json()
+                content_encoded = file_data.get('content', '')
+                # Remove newlines from base64 content
+                content_encoded = content_encoded.replace('\n', '').replace('\r', '')
+                content = base64.b64decode(content_encoded).decode('utf-8')
+                
+                return jsonify({
+                    'success': True,
+                    'code': content,
+                    'message': f'Pulled latest changes from {branch} branch'
+                }), 200
+            except Exception as e:
+                print(f"Error decoding file content: {e}")
+                return jsonify({
+                    'error': f'Failed to decode file content: {str(e)}'
+                }), 500
         elif file_response.status_code == 404:
             return jsonify({
-                'error': f'File {filename} not found in repository'
+                'error': f'File {filename} not found in repository {repo_name}'
             }), 404
         else:
+            try:
+                error_data = file_response.json() if file_response.text else {}
+                error_message = error_data.get('message', 'Unknown error')
+            except ValueError:
+                error_message = 'Unknown error'
+            
             return jsonify({
-                'error': f'Failed to pull: {file_response.json().get("message", "Unknown error")}'
+                'error': f'Failed to pull: {error_message}',
+                'status_code': file_response.status_code
             }), 500
         
     except Exception as e:
         print(f"Error pulling from GitHub: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({
+            'error': f'Internal server error: {str(e)}',
+            'type': type(e).__name__
+        }), 500
 
 
 @app.route('/login.html')
