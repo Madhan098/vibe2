@@ -1812,9 +1812,13 @@ function initializeSidebar() {
 function openFileInEditor(fileName) {
     if (!editor) return;
     
-    // Save current file if exists
+    // Save current file if exists (always save before switching)
     if (window.currentFile && window.fileSystem[window.currentFile]) {
         window.fileSystem[window.currentFile] = editor.getValue();
+        // Show save notification if file was modified
+        if (typeof showToast === 'function') {
+            showToast(`Saved: ${window.currentFile}`, 'success');
+        }
     }
     
     // Load file content
@@ -1870,24 +1874,50 @@ function saveCurrentFile() {
     }
 }
 
-// Get main file from file system
+// Get main file from file system - automatically detects the main entry point
 function getMainFile() {
-    const mainFiles = ['main.py', 'app.py', 'index.js', 'server.js', 'app.js', 'main.js', 'index.py', 'run.py'];
+    // Priority list of main files (in order of preference)
+    const mainFiles = [
+        'main.py', 'app.py', 'index.py', 'run.py',  // Python
+        'index.js', 'app.js', 'server.js', 'main.js',  // JavaScript
+        'index.ts', 'app.ts', 'server.ts', 'main.ts',  // TypeScript
+        'main.java', 'App.java',  // Java
+        'main.cpp', 'main.c',  // C/C++
+        'index.html',  // HTML (if it's a web app)
+        'app.rb', 'main.rb',  // Ruby
+        'main.go',  // Go
+        'main.rs',  // Rust
+    ];
     
-    // Check for main files in file system
+    // First, check for main files in file system
     for (const mainFile of mainFiles) {
-        if (window.fileSystem[mainFile]) {
+        if (window.fileSystem[mainFile] && window.fileSystem[mainFile].trim().length > 0) {
             return mainFile;
         }
     }
     
-    // If no main file found, use current file or first file
-    if (window.currentFile) {
+    // If no standard main file found, check current file
+    if (window.currentFile && window.fileSystem[window.currentFile] && 
+        window.fileSystem[window.currentFile].trim().length > 0) {
         return window.currentFile;
     }
     
-    const files = Object.keys(window.fileSystem);
+    // Check for any file with executable content (non-empty)
+    const files = Object.keys(window.fileSystem).filter(fileName => {
+        const content = window.fileSystem[fileName];
+        return content && content.trim().length > 0;
+    });
+    
     if (files.length > 0) {
+        // Prefer files with common entry point patterns
+        const entryPatterns = ['main', 'app', 'index', 'run', 'start'];
+        for (const pattern of entryPatterns) {
+            const matchingFile = files.find(f => f.toLowerCase().includes(pattern));
+            if (matchingFile) {
+                return matchingFile;
+            }
+        }
+        // Return first non-empty file
         return files[0];
     }
     
@@ -1972,10 +2002,15 @@ async function runCode() {
         return;
     }
     
-    // Save current file
+    // Save current file first
     saveCurrentFile();
     
-    // Get main file or current file
+    // Ensure all files in editor are saved to file system
+    if (window.currentFile) {
+        window.fileSystem[window.currentFile] = editor.getValue();
+    }
+    
+    // Get main file - automatically detect which file to run
     const mainFile = getMainFile();
     if (!mainFile) {
         if (typeof showToast === 'function') {
@@ -1983,6 +2018,12 @@ async function runCode() {
         }
         updateStatus('No file to run', 'warning');
         return;
+    }
+    
+    // Show which file will be run
+    updateStatus(`Analyzing... Main file: ${mainFile}`, 'loading');
+    if (typeof showToast === 'function') {
+        showToast(`Running: ${mainFile}`, 'info');
     }
     
     // Get all files in file system
@@ -1997,12 +2038,14 @@ async function runCode() {
     if (terminalPanel && terminalContent) {
         terminalPanel.style.display = 'flex';
         isTerminalVisible = true;
-        terminalContent.innerHTML = `<div style="color: var(--text-secondary);">$ Running code...</div>`;
+        terminalContent.innerHTML = `<div style="color: var(--text-secondary);">$ Analyzing project structure...</div>
+            <div style="color: var(--info); margin-top: 8px;">Main file detected: <strong>${mainFile}</strong></div>
+            <div style="color: var(--text-secondary); margin-top: 8px;">$ Running code...</div>`;
         // Scroll terminal to bottom
         terminalContent.scrollTop = terminalContent.scrollHeight;
     }
     
-    updateStatus('Running code...', 'loading');
+    updateStatus(`Running: ${mainFile}...`, 'loading');
     
     try {
         // Call backend to run code
