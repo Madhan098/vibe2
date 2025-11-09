@@ -737,11 +737,17 @@ async function generateCodeFromRequest() {
             
             // Check if it's multi-file generation
             if (data.files && Array.isArray(data.files) && data.files.length > 0) {
-                // Show accept/reject dialog for multi-file generation
-                showAcceptRejectDialog(data.files, data.explanation || 'Code generated', true);
+                // Show accept/reject dialog for multi-file generation with profile message
+                const explanation = data.profile_message ? 
+                    `${data.profile_message}\n\n${data.explanation || 'Code generated'}` : 
+                    (data.explanation || 'Code generated');
+                showAcceptRejectDialog(data.files, explanation, true);
             } else if (data.code) {
-                // Single file - show accept/reject dialog
-                showAcceptRejectDialog([{ code: data.code, filename: 'generated.py' }], data.explanation || 'Code generated', false);
+                // Single file - show accept/reject dialog with profile message
+                const explanation = data.profile_message ? 
+                    `${data.profile_message}\n\n${data.explanation || 'Code generated'}` : 
+                    (data.explanation || 'Code generated');
+                showAcceptRejectDialog([{ code: data.code, filename: 'generated.py' }], explanation, false);
             } else {
                 hideLoadingSuggestion();
                 updateStatus('No code generated', 'error');
@@ -2113,11 +2119,26 @@ function showAcceptRejectDialog(files, explanation, isMultiFile) {
     document.getElementById('no-suggestion')?.style.setProperty('display', 'none');
     document.getElementById('loading-suggestion')?.style.setProperty('display', 'none');
     
-    // Set explanation
+    // Set explanation with profile message
     if (dialogExplanation) {
-        dialogExplanation.textContent = explanation || 
+        // Format explanation with profile message at the top
+        let formattedExplanation = explanation || 
             (isMultiFile ? `Generated ${files.length} files to address all issues. Review and accept to apply.` : 
              'Code generated. Review and accept to apply.');
+        
+        // If explanation contains profile message, format it nicely
+        if (formattedExplanation.includes('Based on your user profile')) {
+            const parts = formattedExplanation.split('\n\n');
+            if (parts.length > 1) {
+                // First part is profile message, rest is explanation
+                formattedExplanation = `<div style="margin-bottom: 15px; padding: 12px; background: var(--bg-card); border-radius: 8px; border-left: 4px solid var(--accent-primary);">
+                    <div style="font-weight: 600; color: var(--accent-primary); margin-bottom: 8px; font-size: 1.05rem;">✨ ${parts[0]}</div>
+                    <div style="color: var(--text-secondary); font-size: 0.95rem;">${parts.slice(1).join('\n\n')}</div>
+                </div>`;
+            }
+        }
+        
+        dialogExplanation.innerHTML = formattedExplanation;
     }
     
     // Display files

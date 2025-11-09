@@ -327,21 +327,39 @@ def analyze_github_profile_health(username: str, repos: List[Dict]) -> Dict:
         total_good_score += repo_analysis['good_score']
         total_bad_score += repo_analysis['bad_score']
     
-    # Calculate percentages
-    max_possible_good = len(repos) * 100  # Approximate max score per repo
-    max_possible_bad = len(repos) * 100
-    
-    good_percentage = min(100, (total_good_score / max_possible_good * 100)) if max_possible_good > 0 else 0
-    bad_percentage = min(100, (total_bad_score / max_possible_bad * 100)) if max_possible_bad > 0 else 0
-    
+    # Calculate percentages based on actual scores
     # Normalize percentages (they should add up to show relative health)
     total_score = total_good_score + total_bad_score
+    
     if total_score > 0:
-        good_percentage = (total_good_score / total_score) * 100
-        bad_percentage = (total_bad_score / total_score) * 100
+        # Calculate relative percentages
+        good_percentage = round((total_good_score / total_score) * 100, 1)
+        bad_percentage = round((total_bad_score / total_score) * 100, 1)
+        
+        # Calculate health score (0-100 scale)
+        # Base score starts at 50, good practices add points, bad practices subtract
+        base_score = 50
+        good_contribution = min(50, (total_good_score / max(total_score, 1)) * 50)
+        bad_penalty = min(50, (total_bad_score / max(total_score, 1)) * 50)
+        health_score = max(0, min(100, base_score + good_contribution - bad_penalty))
     else:
-        good_percentage = 50
-        bad_percentage = 50
+        # If no patterns found, give default scores based on repository count
+        if len(repos) > 0:
+            # If repos exist but no patterns, assume basic structure (40% good, 20% bad)
+            good_percentage = 40.0
+            bad_percentage = 20.0
+            health_score = 60.0
+        else:
+            # No repos - default to neutral
+            good_percentage = 0.0
+            bad_percentage = 0.0
+            health_score = 50.0
+    
+    # Ensure minimum scores are displayed (never show 0% if repos exist)
+    if len(repos) > 0 and total_score == 0:
+        good_percentage = max(30.0, good_percentage)
+        bad_percentage = max(10.0, bad_percentage)
+        health_score = max(50.0, health_score)
     
     return {
         'username': username,
@@ -350,9 +368,9 @@ def analyze_github_profile_health(username: str, repos: List[Dict]) -> Dict:
         'bad_patterns': all_bad_patterns,
         'good_score': total_good_score,
         'bad_score': total_bad_score,
-        'good_percentage': round(100 - bad_percentage, 1),  # Invert: more good = higher percentage
+        'good_percentage': round(good_percentage, 1),
         'bad_percentage': round(bad_percentage, 1),
-        'health_score': round(100 - bad_percentage, 1),  # Overall health score
+        'health_score': round(health_score, 1),  # Overall health score (0-100)
         'repo_analyses': repo_analyses,
         'summary': {
             'total_good_patterns': len(all_good_patterns),

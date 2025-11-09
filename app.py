@@ -898,12 +898,32 @@ def analyze_github():
             if health_report:
                 health_report['bad_patterns'].extend(code_content_analysis['bad_patterns'])
                 health_report['bad_score'] += code_content_analysis['bad_score']
-                # Recalculate percentages
+                # Recalculate percentages using the same logic as analyzer
                 total_score = health_report['good_score'] + health_report['bad_score']
                 if total_score > 0:
                     health_report['good_percentage'] = round((health_report['good_score'] / total_score) * 100, 1)
                     health_report['bad_percentage'] = round((health_report['bad_score'] / total_score) * 100, 1)
-                health_report['health_score'] = round(100 - health_report['bad_percentage'], 1)
+                    # Recalculate health score (0-100 scale)
+                    base_score = 50
+                    good_contribution = min(50, (health_report['good_score'] / max(total_score, 1)) * 50)
+                    bad_penalty = min(50, (health_report['bad_score'] / max(total_score, 1)) * 50)
+                    health_report['health_score'] = round(max(0, min(100, base_score + good_contribution - bad_penalty)), 1)
+                else:
+                    # Ensure minimum scores if no patterns found
+                    if len(repos) > 0:
+                        health_report['good_percentage'] = 40.0
+                        health_report['bad_percentage'] = 20.0
+                        health_report['health_score'] = 60.0
+                    else:
+                        health_report['good_percentage'] = 0.0
+                        health_report['bad_percentage'] = 0.0
+                        health_report['health_score'] = 50.0
+                
+                # Ensure minimum scores are displayed (never show 0% if repos exist)
+                if len(repos) > 0 and total_score == 0:
+                    health_report['good_percentage'] = max(30.0, health_report.get('good_percentage', 0))
+                    health_report['bad_percentage'] = max(10.0, health_report.get('bad_percentage', 0))
+                    health_report['health_score'] = max(50.0, health_report.get('health_score', 0))
         
         # Calculate language percentages
         language_percentages = calculate_language_percentages(code_files) if code_files else {}
@@ -1137,18 +1157,26 @@ def generate_code():
         if not ai_engine:
             return jsonify({'error': 'AI engine not initialized. Please check GROQ_API_KEY.'}), 500
         
-        # Get style profile from database (automatically use stored DNA)
+        # ALWAYS get style profile from database (automatically use stored DNA)
         style_profile = None
         health_report = None
         github_issues = []
         
         if user:
+            # ALWAYS try to get stored style profile first
             stored_profile = get_style_profile(user.id)
             if stored_profile:
                 style_profile = stored_profile
-                print(f"Using stored style profile (DNA) for user: {user.email}")
+                print(f"✅ Using stored style profile (DNA) for user: {user.email}")
+            else:
+                # Try to get from request body as fallback
+                style_profile = data.get('style_profile', {})
+                if style_profile:
+                    # Save it for future use
+                    save_style_profile(user.id, style_profile)
+                    print(f"✅ Saved style profile from request for user: {user.email}")
             
-            # Get GitHub health report if available
+            # ALWAYS get GitHub health report if available
             try:
                 user_profile = get_user_profile(user.id)
                 if user_profile and hasattr(user_profile, 'github_health_report') and user_profile.github_health_report:
@@ -1159,17 +1187,9 @@ def generate_code():
                         f"{p.get('description', '')} ({p.get('category', 'Unknown')})"
                         for p in bad_patterns[:20]  # Top 20 issues
                     ]
-                    print(f"Found {len(github_issues)} GitHub health issues to address")
+                    print(f"✅ Found {len(github_issues)} GitHub health issues to address")
             except Exception as e:
-                print(f"Error fetching GitHub health report: {e}")
-            
-            if not style_profile:
-                # Try to get from request body as fallback
-                style_profile = data.get('style_profile', {})
-                if style_profile:
-                    # Save it for future use
-                    save_style_profile(user.id, style_profile)
-                    print(f"Saved style profile from request for user: {user.email}")
+                print(f"⚠️ Error fetching GitHub health report: {e}")
         else:
             # Not authenticated - use provided profile
             style_profile = data.get('style_profile', {})
@@ -1182,18 +1202,63 @@ def generate_code():
                     for p in bad_patterns[:20]
                 ]
         
-        # If no style profile, use a default one for basic code generation
+        # ALWAYS ensure style profile exists - use language-specific defaults based on chosen language
         if not style_profile:
-            style_profile = {
-                'naming_style': 'snake_case',
-                'documentation_percentage': 30,
-                'primary_language': language,
-                'indentation': 4,
-                'line_length': 80,
-                'prefer_comprehensions': True,
-                'use_type_hints': False
-            }
-            print("No style profile found, using default style profile")
+            # Create language-specific default style profile based on chosen language
+            if language.lower() in ['python', 'py']:
+                style_profile = {
+                    'naming_style': 'snake_case',
+                    'documentation_percentage': 30,
+                    'primary_language': 'python',
+                    'indentation': 4,
+                    'line_length': 80,
+                    'prefer_comprehensions': True,
+                    'use_type_hints': False,
+                    'type_hints_percentage': 0,
+                    'error_handling_style': 'try_except'
+                }
+            elif language.lower() in ['javascript', 'js', 'typescript', 'ts']:
+                style_profile = {
+                    'naming_style': 'camelCase',
+                    'documentation_percentage': 30,
+                    'primary_language': language.lower(),
+                    'indentation': 2,
+                    'line_length': 100,
+                    'prefer_comprehensions': True,
+                    'use_type_hints': language.lower() == 'typescript',
+                    'type_hints_percentage': 50 if language.lower() == 'typescript' else 0,
+                    'error_handling_style': 'try_catch'
+                }
+            elif language.lower() in ['java']:
+                style_profile = {
+                    'naming_style': 'camelCase',
+                    'documentation_percentage': 50,
+                    'primary_language': 'java',
+                    'indentation': 4,
+                    'line_length': 100,
+                    'prefer_comprehensions': False,
+                    'use_type_hints': True,
+                    'type_hints_percentage': 100,
+                    'error_handling_style': 'try_catch'
+                }
+            else:
+                # Generic default
+                style_profile = {
+                    'naming_style': 'snake_case',
+                    'documentation_percentage': 30,
+                    'primary_language': language.lower(),
+                    'indentation': 4,
+                    'line_length': 80,
+                    'prefer_comprehensions': True,
+                    'use_type_hints': False,
+                    'type_hints_percentage': 0,
+                    'error_handling_style': 'basic'
+                }
+            print(f"⚠️ No style profile found, using language-specific default for {language}")
+        
+        # ALWAYS update primary_language to match chosen language
+        style_profile['primary_language'] = language.lower()
+        print(f"✅ Using language: {language} (primary_language set to {style_profile['primary_language']})")
         
         # Enhance request with GitHub health issues
         enhanced_request = user_request
@@ -1216,15 +1281,20 @@ Generate code that:
         if github_issues:
             print(f"  Addressing {len(github_issues)} GitHub health issues")
         
-        # Get preferred language from style profile or use provided language
-        preferred_language = style_profile.get('primary_language') or language
+        # ALWAYS use the chosen language (override style profile language)
+        preferred_language = language.lower()  # Always use the language from the selector
+        
+        print(f"✅ Generating code with:")
+        print(f"  - Language: {preferred_language} (from selector)")
+        print(f"  - Style: {style_profile.get('naming_style', 'default')} naming, {style_profile.get('documentation_percentage', 0)}% docs")
+        print(f"  - GitHub Issues: {len(github_issues)} issues to address")
         
         # Generate code using AI (with style matching and health issues)
         try:
             result = ai_engine.generate_code(
                 enhanced_request, 
                 style_profile, 
-                preferred_language,
+                preferred_language,  # Always use chosen language
                 template=template,
                 tech_stack=tech_stack
             )
@@ -1250,21 +1320,39 @@ Generate code that:
                 'error': error_msg
             }), 500
         
+        # Build personalized explanation based on user profile
+        profile_message = "Based on your user profile and coding style"
+        if style_profile:
+            naming_style = style_profile.get('naming_style', 'standard')
+            doc_percentage = style_profile.get('documentation_percentage', 0)
+            profile_message += f" ({naming_style} naming, {doc_percentage}% documentation"
+            if github_issues:
+                profile_message += f", addressing {len(github_issues)} GitHub health issues"
+            profile_message += ")"
+        
+        profile_message += ", here is the code that you're looking for:"
+        
+        # Enhance explanation with profile message
+        base_explanation = result.get('explanation', 'Code generated')
+        enhanced_explanation = f"{profile_message}\n\n{base_explanation}"
+        
         # Check if multi-file generation
         if result.get('files') and isinstance(result.get('files'), list):
             return jsonify({
                 'success': True,
                 'files': result.get('files'),
-                'explanation': result.get('explanation', 'Multi-file code generated'),
-                'confidence': result.get('confidence', 0.0)
+                'explanation': enhanced_explanation,
+                'confidence': result.get('confidence', 0.0),
+                'profile_message': profile_message
             }), 200
         
         # Single file generation
         return jsonify({
             'success': True,
             'code': result.get('code'),
-            'explanation': result.get('explanation', 'Code generated'),
-            'confidence': result.get('confidence', 0.0)
+            'explanation': enhanced_explanation,
+            'confidence': result.get('confidence', 0.0),
+            'profile_message': profile_message
         }), 200
         
     except Exception as e:
