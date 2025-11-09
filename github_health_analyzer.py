@@ -328,38 +328,46 @@ def analyze_github_profile_health(username: str, repos: List[Dict]) -> Dict:
         total_bad_score += repo_analysis['bad_score']
     
     # Calculate percentages based on actual scores
-    # Normalize percentages (they should add up to show relative health)
-    total_score = total_good_score + total_bad_score
+    # Use a balanced scoring system that always provides meaningful scores
     
-    if total_score > 0:
+    # Base scoring: Every repository gets a base score
+    base_good_score = len(repos) * 20  # Base points for having repos
+    base_bad_score = len(repos) * 5   # Base penalty for missing patterns
+    
+    # Add actual pattern scores
+    adjusted_good_score = total_good_score + base_good_score
+    adjusted_bad_score = total_bad_score + base_bad_score
+    
+    # Calculate total adjusted score
+    total_adjusted_score = adjusted_good_score + adjusted_bad_score
+    
+    if total_adjusted_score > 0:
         # Calculate relative percentages
-        good_percentage = round((total_good_score / total_score) * 100, 1)
-        bad_percentage = round((total_bad_score / total_score) * 100, 1)
+        good_percentage = round((adjusted_good_score / total_adjusted_score) * 100, 1)
+        bad_percentage = round((adjusted_bad_score / total_adjusted_score) * 100, 1)
         
         # Calculate health score (0-100 scale)
         # Base score starts at 50, good practices add points, bad practices subtract
         base_score = 50
-        good_contribution = min(50, (total_good_score / max(total_score, 1)) * 50)
-        bad_penalty = min(50, (total_bad_score / max(total_score, 1)) * 50)
+        good_contribution = min(50, (adjusted_good_score / max(total_adjusted_score, 1)) * 50)
+        bad_penalty = min(50, (adjusted_bad_score / max(total_adjusted_score, 1)) * 50)
         health_score = max(0, min(100, base_score + good_contribution - bad_penalty))
     else:
-        # If no patterns found, give default scores based on repository count
+        # Fallback: If still no score, give default based on repo count
         if len(repos) > 0:
-            # If repos exist but no patterns, assume basic structure (40% good, 20% bad)
-            good_percentage = 40.0
-            bad_percentage = 20.0
-            health_score = 60.0
+            good_percentage = 60.0
+            bad_percentage = 40.0
+            health_score = 55.0
         else:
-            # No repos - default to neutral
             good_percentage = 0.0
             bad_percentage = 0.0
             health_score = 50.0
     
     # Ensure minimum scores are displayed (never show 0% if repos exist)
-    if len(repos) > 0 and total_score == 0:
+    if len(repos) > 0:
         good_percentage = max(30.0, good_percentage)
-        bad_percentage = max(10.0, bad_percentage)
-        health_score = max(50.0, health_score)
+        bad_percentage = min(70.0, bad_percentage)  # Cap bad percentage
+        health_score = max(40.0, health_score)  # Minimum health score
     
     return {
         'username': username,

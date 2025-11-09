@@ -166,16 +166,16 @@
                     }
                 } else {
                     // Fallback to backend API
-                    const result = await login(email, password);
-                    if (result.success) {
-                        showSuccess('Login successful! Redirecting...');
-                        setTimeout(() => {
-                            window.location.href = 'dashboard.html';
-                        }, 1000);
-                    } else {
-                        showError(result.error || 'Login failed');
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = 'Sign In';
+                const result = await login(email, password);
+                if (result.success) {
+                    showSuccess('Login successful! Redirecting...');
+                    setTimeout(() => {
+                        window.location.href = 'dashboard.html';
+                    }, 1000);
+                } else {
+                    showError(result.error || 'Login failed');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Sign In';
                     }
                 }
             } catch (error) {
