@@ -225,14 +225,30 @@ Format as JSON:
         # Build style context
         style_context = self._build_style_context(style_profile)
         
-        # Detect language from request or use preferred language
-        detected_language = preferred_language or self._detect_language_from_request(user_request)
-        
-        # If HTML is detected or selected, ensure it's used
-        if detected_language.lower() == 'html' or preferred_language and preferred_language.lower() == 'html':
-            primary_language = 'HTML'
+        # ALWAYS prioritize preferred_language from the selector
+        # Only use detected language if preferred_language is not provided
+        if preferred_language:
+            detected_language = preferred_language
         else:
-            primary_language = style_profile.get('primary_language', detected_language or 'Python')
+            detected_language = self._detect_language_from_request(user_request) or 'Python'
+        
+        # ALWAYS use the detected/preferred language, NOT the style profile's primary_language
+        # This ensures the user's language selection is respected
+        if detected_language.lower() == 'html':
+            primary_language = 'HTML'
+        elif detected_language.lower() in ['javascript', 'js']:
+            primary_language = 'JavaScript'
+        elif detected_language.lower() in ['typescript', 'ts']:
+            primary_language = 'TypeScript'
+        elif detected_language.lower() == 'java':
+            primary_language = 'Java'
+        elif detected_language.lower() == 'css':
+            primary_language = 'CSS'
+        else:
+            # Default to detected language, capitalize first letter
+            primary_language = detected_language.capitalize() if detected_language else 'Python'
+        
+        print(f"✅ AI Engine: Using language '{primary_language}' (from preferred: {preferred_language}, detected: {detected_language})")
         
         # Get language-specific patterns
         languages_used = style_profile.get('languages_detected', [primary_language])
@@ -317,6 +333,8 @@ USER REQUEST:
 "{enhanced_request}"
 
 {"For HTML/webpage requests, generate a COMPLETE webpage with HTML, CSS, and JavaScript files. " if is_html_request else ""}Generate a COMPLETE, PRODUCTION-READY {primary_language} application/project with MULTIPLE FILES ({file_count_hint}) that:
+
+CRITICAL: You MUST generate code in {primary_language} language. Do NOT generate Python code unless the language is explicitly Python. If the user selected HTML, generate HTML files. If they selected JavaScript, generate JavaScript files. Always match the selected language exactly.
 1. Fulfills the user's request completely and comprehensively
 2. MATCHES their coding style EXACTLY (naming, documentation, error handling)
 3. Is production-ready, well-structured, and scalable
@@ -383,6 +401,8 @@ LANGUAGE PATTERNS: {lang_patterns if lang_patterns else 'Standard patterns'}
 
 USER REQUEST:
 "{enhanced_request}"
+
+CRITICAL: You MUST generate code in {primary_language} language. Do NOT generate Python code unless the language is explicitly Python. If the user selected HTML, generate HTML code. If they selected JavaScript, generate JavaScript code. Always match the selected language exactly.
 
 IMPORTANT: Focus on fixing errors found by the AI recommender. The generated code should:
 1. Fix all errors and issues identified in the user's code
