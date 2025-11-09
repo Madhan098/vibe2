@@ -227,7 +227,12 @@ Format as JSON:
         
         # Detect language from request or use preferred language
         detected_language = preferred_language or self._detect_language_from_request(user_request)
-        primary_language = style_profile.get('primary_language', detected_language or 'Python')
+        
+        # If HTML is detected or selected, ensure it's used
+        if detected_language.lower() == 'html' or preferred_language and preferred_language.lower() == 'html':
+            primary_language = 'HTML'
+        else:
+            primary_language = style_profile.get('primary_language', detected_language or 'Python')
         
         # Get language-specific patterns
         languages_used = style_profile.get('languages_detected', [primary_language])
@@ -564,8 +569,10 @@ CRITICAL RULES:
         request_lower = request.lower()
         
         language_keywords = {
+            'HTML': ['html', 'webpage', 'web page', 'website', 'web site', 'login page', 'landing page', 'form', 'button', 'input', 'div', 'span'],
+            'CSS': ['css', 'stylesheet', 'styling', 'design', 'layout', 'responsive'],
+            'JavaScript': ['javascript', 'js', 'node', 'react', 'vue', 'angular', 'script', 'function', 'event'],
             'Python': ['python', 'py', 'django', 'flask', 'pandas', 'numpy'],
-            'JavaScript': ['javascript', 'js', 'node', 'react', 'vue', 'angular'],
             'TypeScript': ['typescript', 'ts', 'tsx'],
             'Java': ['java', 'spring', 'maven'],
             'C++': ['c++', 'cpp', 'cplusplus'],
@@ -578,8 +585,12 @@ CRITICAL RULES:
             'Kotlin': ['kotlin', 'android']
         }
         
+        # Check HTML first (most common for web requests)
+        if any(keyword in request_lower for keyword in language_keywords['HTML']):
+            return 'HTML'
+        
         for lang, keywords in language_keywords.items():
-            if any(keyword in request_lower for keyword in keywords):
+            if lang != 'HTML' and any(keyword in request_lower for keyword in keywords):
                 return lang
         
         return 'Python'  # Default

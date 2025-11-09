@@ -126,9 +126,11 @@ require(['vs/editor/editor.main'], function () {
     });
     
     // Prevent default browser context menu on editor
+    // Note: Monaco's onContextMenu receives a Monaco event object, not a DOM event
     editor.onContextMenu((e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        // Monaco event doesn't have preventDefault/stopPropagation
+        // We handle this by showing our custom menu instead
+        // The default menu is already prevented by Monaco's configuration
     });
     
     // Hide menu when clicking outside (but not on the menu itself)
@@ -1723,10 +1725,18 @@ function initializeSidebar() {
         hideGitHubConnectionModal();
     });
     
-    // Connect GitHub Submit
-    document.getElementById('connect-github-submit-btn')?.addEventListener('click', async () => {
-        await connectGitHub();
-    });
+    // Connect GitHub Submit (prevent duplicate listeners)
+    const connectSubmitBtn = document.getElementById('connect-github-submit-btn');
+    if (connectSubmitBtn) {
+        // Remove existing listeners by cloning
+        const newBtn = connectSubmitBtn.cloneNode(true);
+        connectSubmitBtn.parentNode.replaceChild(newBtn, connectSubmitBtn);
+        newBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            await connectGitHub();
+        });
+    }
     
     // Disconnect GitHub
     document.getElementById('git-disconnect-btn')?.addEventListener('click', async () => {
@@ -1770,8 +1780,14 @@ function initializeSidebar() {
     });
     
     // Run Actions (Sidebar)
-    document.getElementById('run-code-sidebar-btn')?.addEventListener('click', () => {
-        document.getElementById('run-code')?.click();
+    // Run Code - Automatically detects main file and runs it
+    document.getElementById('run-code-sidebar-btn')?.addEventListener('click', async () => {
+        // Save current file first
+        if (window.currentFile && editor) {
+            saveCurrentFile();
+        }
+        // Automatically detect main file and run
+        await runCode();
     });
     
     document.getElementById('debug-code-sidebar-btn')?.addEventListener('click', () => {
@@ -1786,10 +1802,15 @@ function initializeSidebar() {
     function setupFileTreeClick() {
         const fileTreeItems = document.querySelectorAll('.file-tree-item');
         fileTreeItems.forEach(item => {
-            item.addEventListener('click', () => {
+            // Remove existing listeners to prevent duplicates
+            const newItem = item.cloneNode(true);
+            item.parentNode.replaceChild(newItem, item);
+            
+            newItem.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent event bubbling
                 fileTreeItems.forEach(i => i.classList.remove('active'));
-                item.classList.add('active');
-                const fileName = item.dataset.file;
+                newItem.classList.add('active');
+                const fileName = newItem.dataset.file;
                 if (fileName) {
                     openFileInEditor(fileName);
                 }
@@ -1812,11 +1833,21 @@ function initializeSidebar() {
 function openFileInEditor(fileName) {
     if (!editor) return;
     
+    // Prevent duplicate opens of the same file
+    if (window.currentFile === fileName && window.fileSystem[fileName] === editor.getValue()) {
+        // File is already open and unchanged, don't do anything
+        return;
+    }
+    
     // Save current file if exists (always save before switching)
-    if (window.currentFile && window.fileSystem[window.currentFile]) {
+    const wasModified = window.currentFile && 
+                        window.currentFile !== fileName && 
+                        window.fileSystem[window.currentFile] !== editor.getValue();
+    
+    if (window.currentFile && window.currentFile !== fileName) {
         window.fileSystem[window.currentFile] = editor.getValue();
-        // Show save notification if file was modified
-        if (typeof showToast === 'function') {
+        // Only show save notification if file was actually modified
+        if (wasModified && typeof showToast === 'function') {
             showToast(`Saved: ${window.currentFile}`, 'success');
         }
     }
@@ -1851,10 +1882,11 @@ function openFileInEditor(fileName) {
     }
     
     // Update current file
+    const previousFile = window.currentFile;
     window.currentFile = fileName;
     
-    // Show toast
-    if (typeof showToast === 'function') {
+    // Only show toast if this is a different file
+    if (previousFile !== fileName && typeof showToast === 'function') {
         showToast(`Opened: ${fileName}`, 'info');
     }
     
@@ -1963,12 +1995,13 @@ function addFileToTree(fileName) {
             window.fileSystem[fileName] = '';
         }
         
-        // Add click handler to open file
-        fileItem.addEventListener('click', () => {
+        // Add click handler to open file (only once)
+        fileItem.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent event bubbling
             document.querySelectorAll('.file-tree-item').forEach(i => i.classList.remove('active'));
             fileItem.classList.add('active');
             openFileInEditor(fileName);
-        });
+        }, { once: false }); // Allow multiple clicks but prevent duplicates in openFileInEditor
     }
 }
 
@@ -2326,6 +2359,13 @@ function rejectAllCode() {
 // GitHub Connection Functions
 async function checkGitHubConnection() {
     try {
+        // Check if user is authenticated first
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showGitHubNotConnected();
+            return;
+        }
+        
         const userData = await getCurrentUser();
         if (userData && userData.success && userData.user_profile && userData.user_profile.github_connected) {
             showGitHubConnected();
@@ -2333,6 +2373,7 @@ async function checkGitHubConnection() {
             showGitHubNotConnected();
         }
     } catch (e) {
+        // Silently handle errors - user might not be authenticated
         console.log('Error checking GitHub connection:', e);
         showGitHubNotConnected();
     }
@@ -2394,17 +2435,31 @@ async function connectGitHub() {
         return;
     }
     
+    // Check if user is authenticated
+    const authToken = localStorage.getItem('token');
+    if (!authToken) {
+        if (typeof showToast === 'function') {
+            showToast('Please log in first', 'error');
+        }
+        return;
+    }
+    
+    // Prevent duplicate calls
+    if (submitBtn && submitBtn.disabled) {
+        return; // Already processing
+    }
+    
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.textContent = 'Connecting...';
     }
     
     try {
-        const response = await fetch(`${window.API_BASE}/api/github/connect`, {
+        const response = await fetch(`${window.API_BASE || ''}/api/github/connect`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${localStorage.getItem('token')}`
+                'Authorization': `Bearer ${authToken}`
             },
             body: JSON.stringify({
                 token: token,
@@ -2418,7 +2473,7 @@ async function connectGitHub() {
             hideGitHubConnectionModal();
             showGitHubConnected();
             if (typeof showToast === 'function') {
-                showToast(`✅ GitHub connected: ${data.username}`, 'success');
+                showToast(`✅ GitHub connected: ${data.username || username}`, 'success');
             }
         } else {
             if (typeof showToast === 'function') {
@@ -2426,6 +2481,7 @@ async function connectGitHub() {
             }
         }
     } catch (error) {
+        console.error('Error connecting GitHub:', error);
         if (typeof showToast === 'function') {
             showToast('Error connecting GitHub: ' + error.message, 'error');
         }
