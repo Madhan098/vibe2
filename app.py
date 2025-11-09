@@ -14,12 +14,18 @@ from code_analyzer import analyze_code_files, analyze_code
 from github_integration import fetch_all_user_code_files, fetch_user_repositories, get_github_headers
 from github_health_analyzer import analyze_github_profile_health, calculate_language_percentages, analyze_code_content
 import threading
+import uuid
+from datetime import datetime, timedelta
 
 # Global progress tracking for GitHub analysis
 github_progress = {}
 # Global progress tracking for file upload analysis
 file_upload_progress = {}
 progress_lock = threading.Lock()
+
+# Store HTML previews (session_id -> {files: dict, created_at: datetime})
+html_previews = {}
+html_previews_lock = threading.Lock()
 from ai_engine import AIEngine
 from multi_language_analyzer import analyze_all_languages
 from language_detector import get_language_from_extension, detect_language_from_content
@@ -2651,6 +2657,25 @@ def run_code():
                 if result.stderr:
                     error_output.append(result.stderr)
             
+            # Check if it's an HTML file - serve it as a preview
+            elif main_ext == '.html':
+                # Generate unique preview ID
+                preview_id = str(uuid.uuid4())[:8]
+                
+                # Store files for preview
+                with html_previews_lock:
+                    html_previews[preview_id] = {
+                        'files': files.copy(),
+                        'main_file': main_file,
+                        'created_at': datetime.now()
+                    }
+                
+                # Generate preview URL
+                base_url = request.host_url.rstrip('/')
+                url = f"{base_url}/preview/{preview_id}"
+                output.append(f"\n🌐 HTML Preview Ready!")
+                output.append(f"Click the link below to view your webpage in the browser.")
+            
             # Check if it's a web app (Flask, Express, etc.)
             main_content = files.get(main_file, '')
             if 'app.run' in main_content or 'app.listen' in main_content or 'flask' in main_content.lower() or 'express' in main_content.lower():
@@ -2698,6 +2723,102 @@ def run_code():
             'success': False,
             'error': f'Failed to run code: {str(e)}'
         }), 500
+
+
+@app.route('/preview/<preview_id>')
+def preview_html(preview_id):
+    """Serve HTML preview"""
+    with html_previews_lock:
+        if preview_id not in html_previews:
+            return "Preview not found or expired", 404
+        
+        preview_data = html_previews[preview_id]
+        files = preview_data['files']
+        main_file = preview_data['main_file']
+        
+        # Get HTML content
+        html_content = files.get(main_file, '')
+        if not html_content:
+            return "HTML file not found", 404
+        
+        # Inject base64 encoded CSS and JS if they exist
+        # This ensures CSS and JS work even if they're separate files
+        css_content = files.get('styles.css') or files.get('style.css') or ''
+        js_content = files.get('script.js') or files.get('main.js') or ''
+        
+        # Inject CSS into <head> if not already linked
+        if css_content and '<link' not in html_content.lower() and '<style' not in html_content.lower():
+            css_tag = f'<style>\n{css_content}\n</style>'
+            html_content = html_content.replace('</head>', f'{css_tag}\n</head>')
+        
+        # Inject JS before </body> if not already linked
+        if js_content and '<script' not in html_content.lower():
+            js_tag = f'<script>\n{js_content}\n</script>'
+            html_content = html_content.replace('</body>', f'{js_tag}\n</body>')
+        
+        return Response(html_content, mimetype='text/html')
+
+
+@app.route('/preview/<preview_id>/<path:filename>')
+def preview_static(preview_id, filename):
+    """Serve static files (CSS, JS) for HTML preview"""
+    with html_previews_lock:
+        if preview_id not in html_previews:
+            return "Preview not found or expired", 404
+        
+        preview_data = html_previews[preview_id]
+        files = preview_data['files']
+        
+        if filename not in files:
+            return "File not found", 404
+        
+        content = files[filename]
+        
+        # Determine MIME type
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {
+            '.css': 'text/css',
+            '.js': 'application/javascript',
+            '.json': 'application/json',
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.svg': 'image/svg+xml'
+        }
+        mimetype = mime_types.get(ext, 'text/plain')
+        
+        return Response(content, mimetype=mimetype)
+
+
+def cleanup_old_previews():
+    """Clean up HTML previews older than 1 hour"""
+    with html_previews_lock:
+        now = datetime.now()
+        expired_ids = [
+            preview_id for preview_id, data in html_previews.items()
+            if now - data['created_at'] > timedelta(hours=1)
+        ]
+        for preview_id in expired_ids:
+            del html_previews[preview_id]
+        if expired_ids:
+            print(f"Cleaned up {len(expired_ids)} expired HTML previews")
+
+
+# Clean up old previews periodically
+def start_preview_cleanup_thread():
+    """Start background thread to clean up old previews"""
+    def cleanup_loop():
+        while True:
+            time.sleep(3600)  # Run every hour
+            cleanup_old_previews()
+    
+    thread = threading.Thread(target=cleanup_loop, daemon=True)
+    thread.start()
+
+
+# Start cleanup thread on app startup
+start_preview_cleanup_thread()
 
 
 if __name__ == '__main__':
