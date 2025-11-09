@@ -264,7 +264,9 @@ Format as JSON:
             'api', 'backend', 'frontend', 'react app', 'vue app', 'angular app',
             'django', 'flask', 'express', 'next.js', 'nuxt', 'multiple files',
             'complete', 'production', 'enterprise', 'github health', 'health issues',
-            'fix issues', 'address issues', 'fix errors', 'address errors'
+            'fix issues', 'address issues', 'fix errors', 'address errors',
+            'webpage', 'web page', 'page', 'login', 'form', 'button', 'input',
+            'html', 'css', 'javascript', 'js', 'static site', 'static website'
         ]
         
         # Check if request mentions GitHub health issues
@@ -273,18 +275,35 @@ Format as JSON:
             'address issues', 'github health issues'
         ])
         
+        # For HTML/CSS/JS requests, always generate multiple files
+        is_html_request = (
+            primary_language.lower() == 'html' or
+            'html' in user_request.lower() or
+            'webpage' in user_request.lower() or
+            'web page' in user_request.lower() or
+            'login page' in user_request.lower() or
+            'landing page' in user_request.lower()
+        )
+        
         is_multi_file = (
             has_health_issues or  # Always multi-file when addressing health issues
+            is_html_request or  # Always multi-file for HTML/webpage requests
             template in ['web-app', 'flask-app', 'static-site', 'rest-api', 'cli-tool', 'data-analysis'] or
             any(keyword in user_request.lower() for keyword in large_app_keywords) or
             'multiple files' in user_request.lower() or
             'project' in user_request.lower() or
-            len(user_request.split()) > 10  # Longer requests likely need multiple files
+            len(user_request.split()) > 5  # Shorter threshold - most requests need multiple files
         )
         
         if is_multi_file:
             # Determine number of files needed based on request complexity
-            file_count_hint = "5-15 files" if any(kw in enhanced_request.lower() for kw in ['website', 'web app', 'application', 'full stack', 'complete']) else "3-8 files"
+            if is_html_request:
+                # For HTML requests, always generate HTML, CSS, and JS files
+                file_count_hint = "3-5 files (HTML, CSS, JavaScript)"
+            elif any(kw in enhanced_request.lower() for kw in ['website', 'web app', 'application', 'full stack', 'complete']):
+                file_count_hint = "5-15 files"
+            else:
+                file_count_hint = "3-8 files"
             
             prompt = f"""You are CodeMind, an AI coding assistant that writes code matching the user's unique coding style.
 
@@ -297,7 +316,7 @@ LANGUAGE PATTERNS: {lang_patterns if lang_patterns else 'Standard patterns'}
 USER REQUEST:
 "{enhanced_request}"
 
-Generate a COMPLETE, PRODUCTION-READY {primary_language} application/project with MULTIPLE FILES ({file_count_hint}) that:
+{"For HTML/webpage requests, generate a COMPLETE webpage with HTML, CSS, and JavaScript files. " if is_html_request else ""}Generate a COMPLETE, PRODUCTION-READY {primary_language} application/project with MULTIPLE FILES ({file_count_hint}) that:
 1. Fulfills the user's request completely and comprehensively
 2. MATCHES their coding style EXACTLY (naming, documentation, error handling)
 3. Is production-ready, well-structured, and scalable
@@ -312,6 +331,7 @@ Generate a COMPLETE, PRODUCTION-READY {primary_language} application/project wit
    - Static assets structure (if web app: HTML, CSS, JS files)
    - README.md with setup instructions
    - Any other files needed for a complete, working application
+   {"For HTML/webpage requests: MUST include index.html (or main.html), styles.css (or style.css), and script.js (or main.js) files. The HTML file should be complete with proper structure, the CSS should style all elements, and the JavaScript should handle all interactions." if is_html_request else ""}
 
 IMPORTANT FOR LARGE APPLICATIONS:
 - Generate COMPLETE, FULLY FUNCTIONAL code for each file
@@ -326,21 +346,13 @@ Respond with JSON only (no markdown):
 {{
   "files": [
     {{
-      "filename": "main.py",
+      "filename": "{'index.html' if is_html_request else 'main.py'}",
       "code": "COMPLETE, FULLY IMPLEMENTED code for this file matching their style - include all imports, functions, classes, and logic"
-    }},
+    }}{f', {{ "filename": "styles.css", "code": "COMPLETE CSS styling for all elements in the HTML file - include responsive design, colors, fonts, layout, and all visual styling" }}, {{ "filename": "script.js", "code": "COMPLETE JavaScript code for all interactions, event handlers, form validation, and dynamic functionality" }}' if is_html_request else ''},
     {{
-      "filename": "config.py",
-      "code": "COMPLETE configuration file with all settings"
-    }},
-    {{
-      "filename": "requirements.txt",
-      "code": "All required dependencies"
-    }},
-    {{
-      "filename": "README.md",
-      "code": "Complete setup and usage instructions"
-    }}
+      "filename": "{'README.md' if is_html_request else 'config.py'}",
+      "code": "{'Complete setup and usage instructions for the webpage' if is_html_request else 'COMPLETE configuration file with all settings'}"
+    }}{f', {{ "filename": "requirements.txt", "code": "All required dependencies" }}' if not is_html_request else ''}
     // Add more files as needed for a complete application
   ],
   "explanation": "Brief explanation of the application structure and how to run it (3-4 sentences)",

@@ -745,11 +745,40 @@ async function generateCodeFromRequest() {
                     (data.explanation || 'Code generated');
                 showAcceptRejectDialog(data.files, explanation, true);
             } else if (data.code) {
+                // Single file - determine correct file extension based on language
+                const getFileExtension = (lang) => {
+                    const extMap = {
+                        'python': '.py',
+                        'javascript': '.js',
+                        'typescript': '.ts',
+                        'java': '.java',
+                        'html': '.html',
+                        'css': '.css',
+                        'json': '.json',
+                        'markdown': '.md',
+                        'c': '.c',
+                        'cpp': '.cpp',
+                        'c++': '.cpp',
+                        'csharp': '.cs',
+                        'c#': '.cs',
+                        'go': '.go',
+                        'rust': '.rs',
+                        'ruby': '.rb',
+                        'php': '.php',
+                        'swift': '.swift',
+                        'kotlin': '.kt'
+                    };
+                    return extMap[lang.toLowerCase()] || '.py';
+                };
+                
+                const fileExt = getFileExtension(selectedLanguage);
+                const filename = `generated${fileExt}`;
+                
                 // Single file - show accept/reject dialog with profile message
                 const explanation = data.profile_message ? 
                     `${data.profile_message}\n\n${data.explanation || 'Code generated'}` : 
                     (data.explanation || 'Code generated');
-                showAcceptRejectDialog([{ code: data.code, filename: 'generated.py' }], explanation, false);
+                showAcceptRejectDialog([{ code: data.code, filename: filename }], explanation, false);
             } else {
                 hideLoadingSuggestion();
                 updateStatus('No code generated', 'error');
